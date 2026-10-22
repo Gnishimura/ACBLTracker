@@ -1,0 +1,244 @@
+import SwiftUI
+
+/// Column widths shared by the lineup header, rows and score cells so they line up.
+enum Col {
+    static let game: CGFloat = 46
+    static let total: CGFloat = 34
+}
+
+extension Color {
+    /// Team color from ESPN's hex ("c8102e"). Near-black and near-white become grey so the ring shows in light and dark mode.
+    static func team(hex: String?) -> Color? {
+        guard var h = hex?.trimmingCharacters(in: .whitespaces), !h.isEmpty else { return nil }
+        if h.hasPrefix("#") { h.removeFirst() }
+        guard h.count == 6, let v = UInt32(h, radix: 16) else { return nil }
+        let r = Double((v >> 16) & 0xFF) / 255
+        let g = Double((v >> 8) & 0xFF) / 255
+        let b = Double(v & 0xFF) / 255
+        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        if luminance < 0.16 || luminance > 0.9 { return Color(white: 0.55) }
+        return Color(red: r, green: g, blue: b)
+    }
+}
+
+/// "9:12 PM" for today, "Tue 9:12 PM" otherwise.
+func updatedStamp(_ d: Date) -> String {
+    if Calendar.current.isDateInToday(d) { return d.formatted(date: .omitted, time: .shortened) }
+    return d.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+}
+
+extension String {
+    /// "Jalen Brunson" -> "J. Brunson". Single-word names are returned unchanged.
+    var abbreviatedName: String {
+        let parts = split(separator: " ").map(String.init)
+        guard parts.count >= 2, let initial = parts.first?.first else { return self }
+        return "\(initial). " + parts.dropFirst().joined(separator: " ")
+    }
+}
+
+/// Full name when it fits, "J. Brunson" when it doesn't, shrinking slightly as a last resort. Never "...".
+struct PlayerName: View {
+    let name: String
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            Text(name).lineLimit(1)
+            Text(name.abbreviatedName).lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .font(.subheadline.weight(.semibold))
+    }
+}
+
+struct HeadshotView: View {
+    let url: URL?
+    var size: CGFloat = 48
+    /// Team color hex. Not drawn right now (the rings were removed); kept so call sites don't change.
+    var teamColor: String? = nil
+
+    var body: some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size, height: size, alignment: .top)
+                    .clipped()
+            default:
+                Image(systemName: "person.fill")
+                    .resizable()
+                    .scaledToFit()
+                    .padding(size * 0.24)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: size, height: size)
+        .background(Color(.tertiarySystemFill))
+        .clipShape(Circle())
+    }
+}
+
+struct TeamTag: View {
+    let display: PlayerDisplay
+
+    var body: some View {
+        HStack(spacing: 4) {
+            AsyncImage(url: display.teamLogo) { phase in
+                if case .success(let image) = phase {
+                    image.resizable().scaledToFit()
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(width: 16, height: 16)
+            Text(display.teamAbbr)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct PositionPill: View {
+    let position: Position
+
+    var body: some View {
+        Text(position.rawValue)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 19, height: 16)
+            .background(Color(.quaternarySystemFill), in: RoundedRectangle(cornerRadius: 4))
+    }
+}
+
+/// Green dot that slowly pulses while a game is live.
+struct LiveDot: View {
+    var size: CGFloat = 5
+    @State private var dim = false
+
+    var body: some View {
+        Circle()
+            .fill(.green)
+            .frame(width: size, height: size)
+            .opacity(dim ? 0.3 : 1)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { dim = true }
+            }
+    }
+}
+
+/// Red + beside a name when the player is on ESPN's injury report.
+struct InjuryMark: View {
+    var body: some View {
+        Image(systemName: "cross.fill")
+            .font(.system(size: 12, weight: .heavy))
+            .foregroundStyle(.red)
+            .accessibilityLabel("Injured")
+    }
+}
+
+/// "+2" for 30-39 point games, "+5" for 40+.
+struct BonusBadge: View {
+    let bonus: Int
+
+    var body: some View {
+        if bonus > 0 {
+            HStack(spacing: 2) {
+                Image(systemName: bonus >= 5 ? "flame.fill" : "flame")
+                Text("+\(bonus)")
+            }
+            .font(.caption2.bold())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(bonus >= 5 ? Color.red : Color.orange, in: Capsule())
+            .transition(.scale(scale: 0.5).combined(with: .opacity))
+        }
+    }
+}
+
+/// One game cell: points, bonus badge, or DNP / start time.
+struct ScoreCell: View {
+    let line: GameLine?
+    let result: PlayerGameResult?
+    /// True while the very first load is running: shows a grey block instead of "-".
+    var loading: Bool = false
+
+    var body: some View {
+        VStack(spacing: 2) {
+            if loading && line == nil {
+                Text("00")
+                    .font(.system(size: 21, weight: .semibold, design: .rounded))
+                    .redacted(reason: .placeholder)
+            } else if let line, let result {
+                content(line: line, result: result)
+                if line.state != .scheduled, !line.statusText.isEmpty {
+                    Text(line.statusText)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(line.state == .live ? Color.green : Color.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+            } else {
+                Text("-").foregroundStyle(.tertiary)
+            }
+        }
+        .frame(width: Col.game)
+        .animation(.snappy, value: result?.total)
+    }
+
+    private func dayAndTime(_ d: Date) -> (day: String, time: String) {
+        let day = DateFormatter()
+        day.dateFormat = "EEE"
+        let time = DateFormatter()
+        time.dateFormat = "h:mm a"
+        return (day.string(from: d), time.string(from: d))
+    }
+
+    @ViewBuilder
+    private func content(line: GameLine, result: PlayerGameResult) -> some View {
+        switch result.availability {
+        case .dnp:
+            // Did not play: a red tag, no number at all.
+            Text("DNP")
+                .font(.caption.bold())
+                .foregroundStyle(.red)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.red.opacity(0.15), in: Capsule())
+        case .pending:
+            if line.state == .scheduled {
+                let t = dayAndTime(line.date)
+                Text(t.day).font(.caption2.bold()).foregroundStyle(.secondary)
+                Text(t.time).font(.system(size: 10)).foregroundStyle(.secondary)
+            } else {
+                Text("...").foregroundStyle(.secondary)
+            }
+        case .live(let pts), .played(let pts):
+            // Played a full game and scored nothing: orange 0 with a "played" tag, so it can't be mistaken for a DNP.
+            let playedZero = pts == 0 && line.state == .final
+            HStack(spacing: 2) {
+                if line.state == .live {
+                    LiveDot(size: 5)
+                }
+                Text("\(pts)")
+                    .font(.system(size: 21, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .contentTransition(.numericText(value: Double(pts)))
+                    .foregroundStyle(playedZero ? Color.orange : (result.isCounted ? Color.primary : Color.secondary))
+            }
+            if playedZero {
+                Text("played")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.orange)
+            }
+            if result.role == .playingSub {
+                Text("counts \(result.countedPoints)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            BonusBadge(bonus: result.bonus)
+        }
+    }
+}
