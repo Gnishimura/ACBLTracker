@@ -9,6 +9,9 @@ struct GameLine: Equatable, Codable {
     let state: GameState
     let statusText: String     // "Q3 4:12", "Final", ...
     let points: Int?           // nil until he has a stat line
+    /// Field goals made / attempted. nil until he has a stat line, and for weeks saved before this was tracked.
+    var fgm: Int? = nil
+    var fga: Int? = nil
 }
 
 struct NightRow: Identifiable {
@@ -299,8 +302,15 @@ final class WeekStore: ObservableObject {
                 var pts: Int? = nil
                 if case .live(let x) = a { pts = x }
                 if case .played(let x) = a { pts = x }
+                var fgm: Int? = nil
+                var fga: Int? = nil
+                if pts != nil, let stat {
+                    fgm = stat.fgm
+                    fga = stat.fga
+                }
                 playerLines[idx] = GameLine(
-                    eventID: game.id, date: game.date, opponent: opponent, state: game.state, statusText: game.statusText, points: pts
+                    eventID: game.id, date: game.date, opponent: opponent, state: game.state, statusText: game.statusText,
+                    points: pts, fgm: fgm, fga: fga
                 )
             }
             lines[p.id] = playerLines

@@ -226,6 +226,13 @@ struct ScoreCell: View {
                     .contentTransition(.numericText(value: Double(pts)))
                     .foregroundStyle(playedZero ? Color.orange : (result.isCounted ? Color.primary : Color.secondary))
             }
+            if let made = line.fgm, let att = line.fga {
+                Text("\(made)-\(att) FG")
+                    .font(.system(size: 10).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
             if playedZero {
                 Text("played")
                     .font(.system(size: 9, weight: .semibold))

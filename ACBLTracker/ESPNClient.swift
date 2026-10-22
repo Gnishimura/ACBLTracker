@@ -23,6 +23,9 @@ struct PlayerLine: Equatable {
     let athleteID: String
     let points: Int
     let didPlay: Bool
+    /// Field goals made / attempted. nil when ESPN doesn't give them.
+    var fgm: Int? = nil
+    var fga: Int? = nil
 }
 
 struct DirectoryTeam: Codable, Hashable {
@@ -163,6 +166,9 @@ actor ESPNClient {
             let names = group.names ?? []
             let ptsIdx = labels.firstIndex(of: "PTS") ?? names.firstIndex(of: "points")
             let minIdx = labels.firstIndex(of: "MIN") ?? names.firstIndex(of: "minutes")
+            // ESPN packs field goals into one "8-17" (made-attempted) column.
+            let fgIdx = labels.firstIndex(of: "FG")
+                ?? names.firstIndex(of: "fieldGoalsMade-fieldGoalsAttempted")
             for a in group.athletes ?? [] {
                 guard let id = a.athlete?.id else { continue }
                 let stats = a.stats ?? []
@@ -179,7 +185,16 @@ actor ESPNClient {
                     let digits = stats[i].prefix(while: { $0.isNumber })
                     played = (Int(digits) ?? 0) > 0
                 }
-                out[id] = PlayerLine(athleteID: id, points: pts, didPlay: played)
+                var fgm: Int? = nil
+                var fga: Int? = nil
+                if let i = fgIdx, i < stats.count {
+                    let parts = stats[i].split(separator: "-")
+                    if parts.count == 2, let m = Int(parts[0]), let t = Int(parts[1]) {
+                        fgm = m
+                        fga = t
+                    }
+                }
+                out[id] = PlayerLine(athleteID: id, points: pts, didPlay: played, fgm: fgm, fga: fga)
             }
         }
         return out
