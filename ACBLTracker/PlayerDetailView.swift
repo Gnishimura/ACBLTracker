@@ -247,15 +247,13 @@ struct PlayerDetailView: View {
     }
 
     private func loadRecent() async {
-        guard let id = player.espnID else {
-            recentFailed = true
-            return
+        var games: [RecentGame] = []
+        if let id = player.espnID {
+            games = (try? await ESPNClient.shared.gameLog(athleteID: id)) ?? []
         }
-        do {
-            recent = try await ESPNClient.shared.gameLog(athleteID: id)
-        } catch {
-            recentFailed = true
-        }
+        // ESPN's game log can lag early in the season; fall back to games already saved in this app.
+        if games.isEmpty { games = week.savedGames(for: player.id) }
+        recent = games
     }
 
     // MARK: Helpers

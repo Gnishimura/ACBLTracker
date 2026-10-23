@@ -481,4 +481,27 @@ final class WeekStore: ObservableObject {
         for (key, c) in cache where frozen[key] == nil { add(key, c.results, final: false) }
         return out.sorted { $0.weekNumber < $1.weekNumber }
     }
+
+    /// Finished games with a stat line, newest first, from the weeks saved on this phone. Only the two counting games
+    /// per week, but it works when ESPN's game log has nothing yet.
+    func savedGames(for playerID: UUID) -> [RecentGame] {
+        var all: [WeekResults] = Array(frozen.values) + cache.filter { frozen[$0.key] == nil }.map { $0.value.results }
+        if let r = results { all.append(r) }
+        var seen = Set<String>()
+        var out: [RecentGame] = []
+        for r in all {
+            for line in (r.lines[playerID] ?? []).compactMap({ $0 }) where line.state == .final {
+                guard let pts = line.points, !seen.contains(line.eventID) else { continue }
+                seen.insert(line.eventID)
+                out.append(RecentGame(
+                    id: line.eventID, date: line.date, opponent: line.opponent, result: nil, points: pts,
+                    minutes: line.box?.minutes,
+                    fg: line.fgm.flatMap { m in line.fga.map { "\(m)-\($0)" } },
+                    reb: line.box?.reb, ast: line.box?.ast
+                ))
+            }
+        }
+        out.sort { $0.date > $1.date }
+        return Array(out.prefix(5))
+    }
 }
