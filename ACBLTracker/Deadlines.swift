@@ -47,31 +47,43 @@ enum Deadline {
     }
 }
 
-/// One line on the Lineup tab: "Week 2 lineup due in 4d 18h".
-struct DeadlineRow: View {
+/// Small rounded label used in the summary card footer.
+struct SummaryPill: View {
+    let icon: String
+    let text: String
+    var tint: Color = .secondary
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+            Text(text).lineLimit(1).minimumScaleFactor(0.8)
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(tint)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(tint.opacity(0.14), in: Capsule())
+    }
+}
+
+/// "Wk 2 lineup - 4d 17h". Turns orange under a day and red under two hours.
+struct DeadlinePill: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             let next = Deadline.next(after: context.date)
             let secs = next.date.timeIntervalSince(context.date)
-            let tint = tintColor(secs)
-            HStack(spacing: 6) {
-                Image(systemName: "clock").font(.caption).foregroundStyle(tint)
-                Text("Week \(next.weekNumber) lineup due \(relative(secs))")
-                    .font(.caption.weight(.semibold)).foregroundStyle(tint)
-                Spacer()
-                Text(Deadline.label(next.date)).font(.caption2).foregroundStyle(.secondary)
-            }
+            SummaryPill(icon: "clock", text: "Wk \(next.weekNumber) lineup due in \(remaining(secs))", tint: tintColor(secs))
         }
     }
 
-    private func relative(_ secs: TimeInterval) -> String {
+    private func remaining(_ secs: TimeInterval) -> String {
         let total = max(Int(secs / 60), 0)
         let d = total / 1440
         let h = (total % 1440) / 60
         let m = total % 60
-        if d > 0 { return "in \(d)d \(h)h" }
-        if h > 0 { return "in \(h)h \(m)m" }
-        return "in \(m)m"
+        if d > 0 { return "\(d)d \(h)h" }
+        if h > 0 { return "\(h)h \(m)m" }
+        return "\(m)m"
     }
 
     private func tintColor(_ secs: TimeInterval) -> Color {

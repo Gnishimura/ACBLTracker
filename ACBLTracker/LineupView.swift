@@ -48,19 +48,22 @@ struct WeekSummaryCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Button(action: onEditName) {
-                HStack(spacing: 6) {
-                    Text(lineupStore.lineup.teamName)
-                        .font(.title3.weight(.bold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Image(systemName: "pencil")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Spacer()
+            HStack(alignment: .firstTextBaseline) {
+                Button(action: onEditName) {
+                    HStack(spacing: 6) {
+                        Text(lineupStore.lineup.teamName)
+                            .font(.title3.weight(.bold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        Image(systemName: "pencil")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .buttonStyle(.plain)
+                Spacer(minLength: 8)
+                headerStatus
             }
-            .buttonStyle(.plain)
 
             HStack(alignment: .top, spacing: 0) {
                 stat("WEEK", week.results?.weekTotal, weight: .heavy, tint: .accentColor)
@@ -69,19 +72,18 @@ struct WeekSummaryCard: View {
                 stat("BONUS", week.results?.bonusTotal, tint: .orange)
             }
 
-            if week.regretTotal > 0 {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.circle").font(.caption).foregroundStyle(.orange)
-                    Text("Left on the bench: up to \(week.regretTotal) pts")
-                        .font(.caption.weight(.semibold)).foregroundStyle(.orange)
+            notice
+
+            if lineupStore.isEditable || week.regretTotal > 0 {
+                Divider().overlay(Color.white.opacity(0.08))
+                // One row when it fits, stacked when it doesn't.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { pills }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 8) { pills }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-
-            if lineupStore.isEditable {
-                DeadlineRow()
-            }
-
-            statusRow
         }
         .padding(16)
         .background(ebony, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -90,31 +92,48 @@ struct WeekSummaryCard: View {
     }
 
     @ViewBuilder
-    private var statusRow: some View {
+    private var pills: some View {
+        if lineupStore.isEditable { DeadlinePill() }
+        if week.regretTotal > 0 {
+            SummaryPill(icon: "exclamationmark.circle", text: "\(week.regretTotal) pts left on bench", tint: .orange)
+        }
+    }
+
+    /// Top right of the card: Live, or when the scores were last loaded.
+    @ViewBuilder
+    private var headerStatus: some View {
         HStack(spacing: 6) {
             if week.hasLive {
                 LiveDot(size: 7)
                 Text("Live").font(.caption.bold())
+            } else if !week.isFrozen, week.errorMessage == nil, let updated = week.lastUpdated {
+                Text((week.isStale ? "Saved " : "") + updatedStamp(updated))
+                    .font(.caption2).foregroundStyle(.secondary)
             }
-            if week.isFrozen {
+            if week.isLoading { ProgressView().controlSize(.small) }
+        }
+    }
+
+    /// Only shown when something is off: finished week, no connection, or a past week.
+    @ViewBuilder
+    private var notice: some View {
+        if week.isFrozen {
+            HStack(spacing: 6) {
                 Image(systemName: "lock.fill").font(.caption).foregroundStyle(.secondary)
                 Text("Final - saved on this phone").font(.caption).foregroundStyle(.secondary)
-            } else if let error = week.errorMessage {
-                if week.results != nil, let saved = week.lastUpdated {
+            }
+        } else if let error = week.errorMessage {
+            if week.results != nil, let saved = week.lastUpdated {
+                HStack(spacing: 6) {
                     Image(systemName: "wifi.slash").font(.caption).foregroundStyle(.orange)
                     Text("Can't reach ESPN. Showing scores from \(updatedStamp(saved)).")
                         .font(.caption).foregroundStyle(.orange)
-                } else {
-                    Text(error).font(.caption).foregroundStyle(.red)
                 }
-            } else if !lineupStore.isEditable {
-                Text("Past week - view only").font(.caption).foregroundStyle(.secondary)
-            } else if let updated = week.lastUpdated {
-                Text(week.isStale ? "Saved scores from \(updatedStamp(updated))" : "Updated \(updatedStamp(updated))")
-                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text(error).font(.caption).foregroundStyle(.red)
             }
-            Spacer()
-            if week.isLoading { ProgressView().controlSize(.small) }
+        } else if !lineupStore.isEditable {
+            Text("Past week - view only").font(.caption).foregroundStyle(.secondary)
         }
     }
 
