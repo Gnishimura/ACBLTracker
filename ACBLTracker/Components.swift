@@ -227,8 +227,8 @@ struct ScoreCell: View {
                     .foregroundStyle(playedZero ? Color.orange : (result.isCounted ? Color.primary : Color.secondary))
             }
             if let made = line.fgm, let att = line.fga {
-                Text("\(made)-\(att) FG")
-                    .font(.system(size: 10).monospacedDigit())
+                Text("\(made)-\(att)")
+                    .font(.system(size: 12, weight: .medium).monospacedDigit())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
