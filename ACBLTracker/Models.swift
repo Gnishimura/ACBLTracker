@@ -88,6 +88,14 @@ struct Lineup: Codable, Equatable {
 
     func contains(espnID: String) -> Bool { all.contains { $0.espnID == espnID } }
 
+    /// Where a player sits right now, or nil if he isn't on this lineup.
+    func slot(of id: UUID) -> SlotID? {
+        for i in starters.indices where starters[i].id == id { return .starter(i) }
+        for i in bench.indices where bench[i].id == id { return .bench(i) }
+        for i in deep.indices where deep[i].id == id { return .deep(i) }
+        return nil
+    }
+
     /// Where a newly added player lands: an open starter slot at his position,
     /// else the first open bench spot, else the first open deep-bench spot.
     func firstOpenSlot(for position: Position) -> SlotID? {

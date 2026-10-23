@@ -86,6 +86,19 @@ struct Injury: Equatable {
     }
 }
 
+/// One of a player's recent NBA games, from ESPN's player game log.
+struct RecentGame: Identifiable, Equatable {
+    let id: String
+    let date: Date
+    let opponent: String      // "vs BOS" / "@ BOS"
+    let result: String?       // "W" / "L"
+    let points: Int?
+    let minutes: String?
+    let fg: String?           // "6-19"
+    let reb: Int?
+    let ast: Int?
+}
+
 enum ClientError: Error {
     case badStatus
     case noData
@@ -95,6 +108,7 @@ actor ESPNClient {
     static let shared = ESPNClient()
 
     private let base = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
+    private var gameLogCache: [String: (fetched: Date, games: [RecentGame])] = [:]
     private let session: URLSession = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 15
@@ -260,6 +274,65 @@ actor ESPNClient {
         return out
     }
 
+    // MARK: Recent games
+
+    /// A player's last five games this season, newest first. Cached for five minutes.
+    func gameLog(athleteID: String) async throws -> [RecentGame] {
+        if let hit = gameLogCache[athleteID], Date().timeIntervalSince(hit.fetched) < 300 { return hit.games }
+        guard let url = URL(string: "https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/\(athleteID)/gamelog")
+        else { throw ClientError.badStatus }
+        let (data, response) = try await session.data(from: url)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw ClientError.badStatus
+        }
+        let r = try JSONDecoder().decode(GameLogResponse.self, from: data)
+        let names = r.names ?? []
+        let labels = (r.labels ?? []).map { $0.uppercased() }
+        func idx(_ name: String, _ label: String) -> Int? { names.firstIndex(of: name) ?? labels.firstIndex(of: label) }
+        let ptsI = idx("points", "PTS")
+        let minI = idx("minutes", "MIN")
+        let fgI = idx("fieldGoalsMade-fieldGoalsAttempted", "FG")
+        let rebI = idx("totalRebounds", "REB")
+        let astI = idx("assists", "AST")
+
+        // Regular season if there is one, otherwise whatever ESPN has (preseason early in the year).
+        let types = r.seasonTypes ?? []
+        let regular = types.filter { ($0.displayName ?? "").lowercased().contains("regular") }
+        let chosen = regular.isEmpty ? types : regular
+
+        var out: [RecentGame] = []
+        var seen = Set<String>()
+        for t in chosen {
+            for c in t.categories ?? [] {
+                for e in c.events ?? [] {
+                    guard let eid = e.eventId, !seen.contains(eid),
+                          let info = r.events?[eid], let date = DateParsing.parse(info.gameDate ?? "")
+                    else { continue }
+                    seen.insert(eid)
+                    let stats = e.stats ?? []
+                    func at(_ i: Int?) -> String? {
+                        guard let i, i < stats.count else { return nil }
+                        return stats[i]
+                    }
+                    out.append(RecentGame(
+                        id: eid, date: date,
+                        opponent: "\(info.atVs ?? "vs") \(info.opponent?.abbreviation ?? "")",
+                        result: info.gameResult,
+                        points: at(ptsI).flatMap { Int($0) },
+                        minutes: at(minI),
+                        fg: at(fgI),
+                        reb: at(rebI).flatMap { Int($0) },
+                        ast: at(astI).flatMap { Int($0) }
+                    ))
+                }
+            }
+        }
+        out.sort { $0.date > $1.date }
+        let games = Array(out.prefix(5))
+        gameLogCache[athleteID] = (Date(), games)
+        return games
+    }
+
     // MARK: Teams and rosters
 
     func teams() async throws -> [DirectoryTeam] {
@@ -413,5 +486,29 @@ private struct RosterAthlete: Decodable {
         // In grouped rosters "position" is a plain string; in flat ones it's an object. Tolerate both.
         position = (try? c.decodeIfPresent(PositionRef.self, forKey: .position)) ?? nil
         items = (try? c.decodeIfPresent([RosterAthlete].self, forKey: .items)) ?? nil
+    }
+}
+
+private struct GameLogResponse: Decodable {
+    let names: [String]?
+    let labels: [String]?
+    let events: [String: EventInfo]?
+    let seasonTypes: [SeasonType]?
+
+    struct EventInfo: Decodable {
+        let atVs: String?
+        let gameDate: String?
+        let gameResult: String?
+        let opponent: Opponent?
+    }
+    struct Opponent: Decodable { let abbreviation: String? }
+    struct SeasonType: Decodable {
+        let displayName: String?
+        let categories: [Category]?
+    }
+    struct Category: Decodable { let events: [StatEvent]? }
+    struct StatEvent: Decodable {
+        let eventId: String?
+        let stats: [String]?
     }
 }

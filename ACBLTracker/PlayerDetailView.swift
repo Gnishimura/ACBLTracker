@@ -1,11 +1,16 @@
 import SwiftUI
 
-/// Tap a player on the Lineup tab: full stat line for each of his two counting games and how each one scored.
+/// Tap a player on the Lineup tab: where he sits, his next game, the stat line for each of his two counting games,
+/// how each one scored, and how he's played lately.
 struct PlayerDetailView: View {
     let player: RosterPlayer
     @EnvironmentObject var week: WeekStore
     @EnvironmentObject var directory: PlayerDirectory
+    @EnvironmentObject var lineupStore: LineupStore
     @Environment(\.dismiss) private var dismiss
+
+    @State private var recent: [RecentGame]?
+    @State private var recentFailed = false
 
     var body: some View {
         let display = directory.display(for: player)
@@ -28,8 +33,12 @@ struct PlayerDetailView: View {
                     .padding(.vertical, 4)
                 }
 
+                Section("Your lineup") { lineupRows }
+
                 gameSection(0)
                 gameSection(1)
+
+                recentSection
 
                 if let total = week.results?.playerTotal(player.id) {
                     Section("This week") {
@@ -47,8 +56,60 @@ struct PlayerDetailView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
             }
+            .task { await loadRecent() }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    // MARK: Your lineup
+
+    @ViewBuilder
+    private var lineupRows: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Slot")
+            Spacer()
+            Text(slotText).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+        }
+        if let note = week.regretNote(for: player.id) {
+            Text(note).font(.subheadline.weight(.semibold)).foregroundStyle(.orange)
+        }
+        if let next = nextGameText {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Next game")
+                Spacer()
+                Text(next).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+            }
+        }
+    }
+
+    private var slotText: String {
+        guard let slot = lineupStore.lineup.slot(of: player.id) else { return "Not on this week's lineup" }
+        switch slot {
+        case .starter(let i):
+            return "Starter at \(Lineup.starterPositions[i].rawValue) - full points and bonus"
+        case .bench(let i):
+            return "Bench, sub #\(i + 1) - half points when he plays"
+        case .deep(let i):
+            return "Deep bench, sub #\(i + 4) - counts only if a sub ahead of him sits"
+        }
+    }
+
+    /// The first of his two counting games that hasn't finished.
+    private var nextGameText: String? {
+        var sawGame = false
+        for g in 0..<2 {
+            guard let line = week.results?.line(for: player.id, game: g) else { continue }
+            sawGame = true
+            switch line.state {
+            case .live:
+                return "\(line.opponent) - live now"
+            case .scheduled:
+                return "\(line.opponent) - " + line.date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+            case .final:
+                continue
+            }
+        }
+        return sawGame ? "Both counting games are done" : nil
     }
 
     // MARK: One game
@@ -126,6 +187,78 @@ struct PlayerDetailView: View {
         }
         .padding(.vertical, 4)
     }
+
+    // MARK: Recent form
+
+    @ViewBuilder
+    private var recentSection: some View {
+        Section {
+            if let recent {
+                if recent.isEmpty {
+                    Text("No games played yet this season").foregroundStyle(.secondary)
+                } else {
+                    ForEach(recent) { recentRow($0) }
+                }
+            } else if recentFailed {
+                Text("Couldn't load recent games").foregroundStyle(.secondary)
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Loading...").foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            HStack {
+                Text("RECENT FORM")
+                Spacer()
+                if let avg = averageText { Text(avg) }
+            }
+        }
+    }
+
+    private var averageText: String? {
+        guard let recent else { return nil }
+        let pts = recent.compactMap { $0.points }
+        guard !pts.isEmpty else { return nil }
+        let avg = Double(pts.reduce(0, +)) / Double(pts.count)
+        return "\(pts.count)-game avg \(String(format: "%.1f", avg)) pts"
+    }
+
+    private func recentRow(_ game: RecentGame) -> some View {
+        var parts: [String] = []
+        if let fg = game.fg { parts.append("\(fg) FG") }
+        if let reb = game.reb { parts.append("\(reb) reb") }
+        if let ast = game.ast { parts.append("\(ast) ast") }
+        if let min = game.minutes { parts.append("\(min) min") }
+        return HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(game.opponent + (game.result.map { " - \($0)" } ?? ""))
+                    .font(.subheadline.weight(.semibold))
+                Text(game.date.formatted(.dateTime.month(.abbreviated).day()))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(game.points.map(String.init) ?? "-").font(.title3.bold()).monospacedDigit()
+                Text(parts.joined(separator: " - "))
+                    .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+            }
+        }
+    }
+
+    private func loadRecent() async {
+        guard let id = player.espnID else {
+            recentFailed = true
+            return
+        }
+        do {
+            recent = try await ESPNClient.shared.gameLog(athleteID: id)
+        } catch {
+            recentFailed = true
+        }
+    }
+
+    // MARK: Helpers
 
     private func num(_ v: Int?) -> String { v.map(String.init) ?? "-" }
 
