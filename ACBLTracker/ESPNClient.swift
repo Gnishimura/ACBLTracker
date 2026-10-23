@@ -41,6 +41,7 @@ struct BoxStats: Codable, Equatable {
     var tpa: Int? = nil
     var ftm: Int? = nil
     var fta: Int? = nil
+    var plusMinus: Int? = nil
 }
 
 struct DirectoryTeam: Codable, Hashable {
@@ -193,6 +194,7 @@ actor ESPNClient {
             let stlIdx = labels.firstIndex(of: "STL") ?? names.firstIndex(of: "steals")
             let blkIdx = labels.firstIndex(of: "BLK") ?? names.firstIndex(of: "blocks")
             let toIdx = labels.firstIndex(of: "TO") ?? names.firstIndex(of: "turnovers")
+            let pmIdx = labels.firstIndex(of: "+/-") ?? names.firstIndex(of: "plusMinus")
             for a in group.athletes ?? [] {
                 guard let id = a.athlete?.id else { continue }
                 let stats = a.stats ?? []
@@ -227,7 +229,8 @@ actor ESPNClient {
                 if let i = minIdx, i < stats.count { minutes = stats[i] }
                 let box = BoxStats(
                     minutes: minutes, reb: num(rebIdx), ast: num(astIdx), stl: num(stlIdx),
-                    blk: num(blkIdx), tov: num(toIdx), tpm: tp.0, tpa: tp.1, ftm: ft.0, fta: ft.1
+                    blk: num(blkIdx), tov: num(toIdx), tpm: tp.0, tpa: tp.1, ftm: ft.0, fta: ft.1,
+                    plusMinus: num(pmIdx)
                 )
                 out[id] = PlayerLine(athleteID: id, points: pts, didPlay: played, fgm: fg.0, fga: fg.1, box: box)
             }

@@ -71,13 +71,6 @@ struct PlayerDetailView: View {
                         .foregroundStyle(result?.availability.isDNP == true ? Color.red : Color.secondary)
                 } else {
                     statGrid(line)
-                    if let pct = shootingPercent(line) {
-                        HStack {
-                            Text("Shooting")
-                            Spacer()
-                            Text(pct).foregroundStyle(.secondary).monospacedDigit()
-                        }
-                    }
                 }
                 if let result, line.state != .scheduled {
                     HStack {
@@ -112,6 +105,7 @@ struct PlayerDetailView: View {
             ("PTS", line.points.map(String.init) ?? "-"),
             ("MIN", b?.minutes ?? "-"),
             ("FG", pair(line.fgm, line.fga)),
+            ("FG%", percent(line.fgm, line.fga)),
             ("3PT", pair(b?.tpm, b?.tpa)),
             ("FT", pair(b?.ftm, b?.fta)),
             ("REB", num(b?.reb)),
@@ -119,8 +113,9 @@ struct PlayerDetailView: View {
             ("STL", num(b?.stl)),
             ("BLK", num(b?.blk)),
             ("TO", num(b?.tov)),
+            ("+/-", signed(b?.plusMinus)),
         ]
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 5), spacing: 14) {
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 16) {
             ForEach(cells, id: \.0) { cell in
                 VStack(spacing: 2) {
                     Text(cell.1).font(.headline).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
@@ -139,9 +134,14 @@ struct PlayerDetailView: View {
         return "\(made)-\(att)"
     }
 
-    private func shootingPercent(_ line: GameLine) -> String? {
-        guard let m = line.fgm, let a = line.fga, a > 0 else { return nil }
-        return "\(Int((Double(m) / Double(a) * 100).rounded()))% FG"
+    private func percent(_ made: Int?, _ att: Int?) -> String {
+        guard let made, let att, att > 0 else { return "-" }
+        return "\(Int((Double(made) / Double(att) * 100).rounded()))%"
+    }
+
+    private func signed(_ v: Int?) -> String {
+        guard let v else { return "-" }
+        return v > 0 ? "+\(v)" : "\(v)"
     }
 
     private func roleText(_ r: PlayerGameResult) -> String {
