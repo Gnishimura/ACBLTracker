@@ -36,6 +36,8 @@ struct RootView: View {
                 .tabItem { Label("Lineup", systemImage: "list.number") }
             NightlyView()
                 .tabItem { Label("Nightly", systemImage: "moon.stars") }
+            HistoryView()
+                .tabItem { Label("History", systemImage: "chart.bar.fill") }
         }
         .task { await week.refresh() }
         .onChange(of: lineupStore.lineup) { _, _ in

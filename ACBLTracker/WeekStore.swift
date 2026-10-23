@@ -12,6 +12,7 @@ struct GameLine: Equatable, Codable {
     /// Field goals made / attempted. nil until he has a stat line, and for weeks saved before this was tracked.
     var fgm: Int? = nil
     var fga: Int? = nil
+    var box: BoxStats? = nil
 }
 
 struct NightRow: Identifiable {
@@ -304,13 +305,15 @@ final class WeekStore: ObservableObject {
                 if case .played(let x) = a { pts = x }
                 var fgm: Int? = nil
                 var fga: Int? = nil
+                var boxStats: BoxStats? = nil
                 if pts != nil, let stat {
                     fgm = stat.fgm
                     fga = stat.fga
+                    boxStats = stat.box
                 }
                 playerLines[idx] = GameLine(
                     eventID: game.id, date: game.date, opponent: opponent, state: game.state, statusText: game.statusText,
-                    points: pts, fgm: fgm, fga: fga
+                    points: pts, fgm: fgm, fga: fga, box: boxStats
                 )
             }
             lines[p.id] = playerLines
@@ -375,5 +378,91 @@ final class WeekStore: ObservableObject {
 
     func nightTotal(on day: Date) -> Int {
         rows(on: day).reduce(0) { $0 + $1.result.total }
+    }
+
+    // MARK: Bench regret
+
+    struct Regret: Identifiable {
+        let game: Int            // 0 or 1
+        let starter: RosterPlayer
+        let sub: RosterPlayer
+        let gain: Int
+        var id: String { "\(game)-\(starter.id.uuidString)" }
+    }
+
+    /// Subs who outscored the starter at their position in a finished game, one entry per starter per game.
+    /// The gain is the sub's full points (plus bonus) minus what the starter counted and what the sub already counted.
+    /// It's an upper bound: it ignores the half points the benched starter might have picked up as a playing sub.
+    func regrets() -> [Regret] {
+        guard let results else { return [] }
+        let lineup = lineupStore.lineup
+        var out: [Regret] = []
+        for game in 0..<2 {
+            let perGame = results.perGame[game]
+            var taken = Set<UUID>()
+            for (i, starter) in lineup.starters.enumerated() where !starter.isEmpty {
+                guard let sr = perGame[starter.id], sr.role == .starter, case .played = sr.availability else { continue }
+                let slotPosition = Lineup.starterPositions[i]
+                var best: (sub: RosterPlayer, gain: Int)? = nil
+                for sub in lineup.subs where !sub.isEmpty && sub.position == slotPosition && !taken.contains(sub.id) {
+                    guard let r = perGame[sub.id], r.role != .promoted, case .played(let pts) = r.availability else { continue }
+                    let gain = pts + rules.bonus(for: pts) - r.countedPoints - sr.total
+                    if gain > (best?.gain ?? 0) { best = (sub, gain) }
+                }
+                if let best {
+                    taken.insert(best.sub.id)
+                    out.append(Regret(game: game, starter: starter, sub: best.sub, gain: best.gain))
+                }
+            }
+        }
+        return out
+    }
+
+    /// "Outscored J. Brunson by 8 in G1" for a sub who would have beaten his starter.
+    func regretNote(for playerID: UUID) -> String? {
+        let hits = regrets().filter { $0.sub.id == playerID }
+        guard !hits.isEmpty else { return nil }
+        return hits
+            .map { "Outscored \($0.starter.name.abbreviatedName) by \($0.gain) in G\($0.game + 1)" }
+            .joined(separator: ", ")
+    }
+
+    /// Points that sat on the bench across both games (sum of the best swap for each starter).
+    var regretTotal: Int { regrets().reduce(0) { $0 + $1.gain } }
+
+    // MARK: History
+
+    struct HistoryEntry: Identifiable {
+        let key: String
+        let weekNumber: Int
+        let total: Int
+        let game1: Int
+        let game2: Int
+        let bonus: Int
+        let isFinal: Bool
+        var id: String { key }
+    }
+
+    private func weekDate(_ key: String) -> Date? {
+        let p = key.split(separator: "-").compactMap { Int($0) }
+        guard p.count == 3 else { return nil }
+        return ET.cal.date(from: DateComponents(year: p[0], month: p[1], day: p[2]))
+    }
+
+    /// One entry per league week we have scores for: saved finished weeks, plus the last load of any other week.
+    func history() -> [HistoryEntry] {
+        var out: [HistoryEntry] = []
+        func add(_ key: String, _ r: WeekResults, final: Bool) {
+            guard let d = weekDate(key) else { return }
+            let n = Self.weekNumber(for: d)
+            guard n >= 1 else { return }
+            out.append(HistoryEntry(
+                key: key, weekNumber: n, total: r.weekTotal,
+                game1: r.gameTotal(0), game2: r.gameTotal(1), bonus: r.bonusTotal, isFinal: final
+            ))
+        }
+        for (key, r) in frozen { add(key, r, final: true) }
+        for (key, c) in cache where frozen[key] == nil { add(key, c.results, final: false) }
+        return out.sorted { $0.weekNumber < $1.weekNumber }
     }
 }

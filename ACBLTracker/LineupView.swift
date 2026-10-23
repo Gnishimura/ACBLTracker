@@ -69,6 +69,14 @@ struct WeekSummaryCard: View {
                 stat("BONUS", week.results?.bonusTotal, tint: .orange)
             }
 
+            if week.regretTotal > 0 {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.circle").font(.caption).foregroundStyle(.orange)
+                    Text("Left on the bench: up to \(week.regretTotal) pts")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.orange)
+                }
+            }
+
             statusRow
         }
         .padding(16)
@@ -198,6 +206,9 @@ struct LineupRow: View {
                     Text(injury.summary).font(.caption2.weight(.semibold)).foregroundStyle(.red)
                 }
                 promotionNote(r0, r1)
+                if let note = week.regretNote(for: player.id) {
+                    Text(note).font(.caption2).foregroundStyle(.orange)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             ScoreCell(line: week.results?.line(for: player.id, game: 0), result: r0, loading: week.results == nil && week.isLoading)
@@ -226,6 +237,7 @@ struct LineupView: View {
     @State private var editing = false
     @State private var selected: SlotID?
     @State private var replacing: SlotID?
+    @State private var detail: RosterPlayer?
     @State private var showSwapError = false
     @State private var query = ""
     @State private var adding: DirectoryPlayer?
@@ -337,6 +349,9 @@ struct LineupView: View {
             }
             .sheet(item: $replacing) { slot in
                 PlayerPickerView(slot: slot)
+            }
+            .sheet(item: $detail) { player in
+                PlayerDetailView(player: player)
             }
             .sheet(item: $adding) { player in
                 AddPlayerView(player: player) {
@@ -557,8 +572,13 @@ struct LineupView: View {
     }
 
     private func tap(_ slot: SlotID) {
-        guard lineupStore.isEditable else { return }
         let tapped = lineupStore.lineup.player(at: slot)
+        // Outside edit mode, tapping a player opens his stat sheet (past weeks included).
+        if !editing, !tapped.isEmpty {
+            detail = tapped
+            return
+        }
+        guard lineupStore.isEditable else { return }
         guard editing else {
             if tapped.isEmpty { replacing = slot }   // tap an empty slot to fill it
             return

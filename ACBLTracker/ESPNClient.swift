@@ -26,6 +26,21 @@ struct PlayerLine: Equatable {
     /// Field goals made / attempted. nil when ESPN doesn't give them.
     var fgm: Int? = nil
     var fga: Int? = nil
+    var box: BoxStats? = nil
+}
+
+/// The rest of a player's box score line (points and field goals live on PlayerLine / GameLine).
+struct BoxStats: Codable, Equatable {
+    var minutes: String? = nil
+    var reb: Int? = nil
+    var ast: Int? = nil
+    var stl: Int? = nil
+    var blk: Int? = nil
+    var tov: Int? = nil
+    var tpm: Int? = nil
+    var tpa: Int? = nil
+    var ftm: Int? = nil
+    var fta: Int? = nil
 }
 
 struct DirectoryTeam: Codable, Hashable {
@@ -169,6 +184,15 @@ actor ESPNClient {
             // ESPN packs field goals into one "8-17" (made-attempted) column.
             let fgIdx = labels.firstIndex(of: "FG")
                 ?? names.firstIndex(of: "fieldGoalsMade-fieldGoalsAttempted")
+            let tpIdx = labels.firstIndex(of: "3PT")
+                ?? names.firstIndex(of: "threePointFieldGoalsMade-threePointFieldGoalsAttempted")
+            let ftIdx = labels.firstIndex(of: "FT")
+                ?? names.firstIndex(of: "freeThrowsMade-freeThrowsAttempted")
+            let rebIdx = labels.firstIndex(of: "REB") ?? names.firstIndex(of: "rebounds")
+            let astIdx = labels.firstIndex(of: "AST") ?? names.firstIndex(of: "assists")
+            let stlIdx = labels.firstIndex(of: "STL") ?? names.firstIndex(of: "steals")
+            let blkIdx = labels.firstIndex(of: "BLK") ?? names.firstIndex(of: "blocks")
+            let toIdx = labels.firstIndex(of: "TO") ?? names.firstIndex(of: "turnovers")
             for a in group.athletes ?? [] {
                 guard let id = a.athlete?.id else { continue }
                 let stats = a.stats ?? []
@@ -185,16 +209,27 @@ actor ESPNClient {
                     let digits = stats[i].prefix(while: { $0.isNumber })
                     played = (Int(digits) ?? 0) > 0
                 }
-                var fgm: Int? = nil
-                var fga: Int? = nil
-                if let i = fgIdx, i < stats.count {
-                    let parts = stats[i].split(separator: "-")
-                    if parts.count == 2, let m = Int(parts[0]), let t = Int(parts[1]) {
-                        fgm = m
-                        fga = t
-                    }
+                func num(_ i: Int?) -> Int? {
+                    guard let i, i < stats.count else { return nil }
+                    return Int(stats[i])
                 }
-                out[id] = PlayerLine(athleteID: id, points: pts, didPlay: played, fgm: fgm, fga: fga)
+                // "8-17" style columns: made-attempted.
+                func pair(_ i: Int?) -> (Int?, Int?) {
+                    guard let i, i < stats.count else { return (nil, nil) }
+                    let p = stats[i].split(separator: "-")
+                    guard p.count == 2 else { return (nil, nil) }
+                    return (Int(p[0]), Int(p[1]))
+                }
+                let fg = pair(fgIdx)
+                let tp = pair(tpIdx)
+                let ft = pair(ftIdx)
+                var minutes: String? = nil
+                if let i = minIdx, i < stats.count { minutes = stats[i] }
+                let box = BoxStats(
+                    minutes: minutes, reb: num(rebIdx), ast: num(astIdx), stl: num(stlIdx),
+                    blk: num(blkIdx), tov: num(toIdx), tpm: tp.0, tpa: tp.1, ftm: ft.0, fta: ft.1
+                )
+                out[id] = PlayerLine(athleteID: id, points: pts, didPlay: played, fgm: fg.0, fga: fg.1, box: box)
             }
         }
         return out
