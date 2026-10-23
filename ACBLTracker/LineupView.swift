@@ -77,6 +77,10 @@ struct WeekSummaryCard: View {
                 }
             }
 
+            if lineupStore.isEditable {
+                DeadlineRow()
+            }
+
             statusRow
         }
         .padding(16)
@@ -234,6 +238,7 @@ struct LineupView: View {
     @EnvironmentObject var week: WeekStore
     @EnvironmentObject var directory: PlayerDirectory
 
+    @AppStorage(Reminders.storageKey) private var remindersOn = true
     @State private var editing = false
     @State private var selected: SlotID?
     @State private var replacing: SlotID?
@@ -310,6 +315,11 @@ struct LineupView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button("Rename team", systemImage: "pencil") { startRename() }
+                        Button(remindersOn ? "Turn off reminders" : "Turn on reminders",
+                               systemImage: remindersOn ? "bell.slash" : "bell") {
+                            remindersOn.toggle()
+                            Task { await Reminders.sync(enabled: remindersOn) }
+                        }
                         if lineupStore.isEditable {
                             Button("Clear this week's lineup", systemImage: "trash", role: .destructive) {
                                 confirmClear = true

@@ -29,6 +29,7 @@ struct RootView: View {
     @EnvironmentObject var week: WeekStore
     @EnvironmentObject var lineupStore: LineupStore
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(Reminders.storageKey) private var remindersOn = true
 
     var body: some View {
         TabView {
@@ -40,6 +41,7 @@ struct RootView: View {
                 .tabItem { Label("History", systemImage: "chart.bar.fill") }
         }
         .task { await week.refresh() }
+        .task { await Reminders.sync(enabled: remindersOn) }
         .onChange(of: lineupStore.lineup) { _, _ in
             Task { await week.refresh() }
         }
