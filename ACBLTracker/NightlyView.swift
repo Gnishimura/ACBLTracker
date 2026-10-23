@@ -38,6 +38,7 @@ struct NightlyView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .contentMargins(.bottom, 80, for: .scrollContent)
             .navigationTitle("Nightly")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .principal) { WeekNavigator() } }

@@ -139,17 +139,19 @@ struct InjuryMark: View {
 /// "+2" for 30-39 point games, "+5" for 40+.
 struct BonusBadge: View {
     let bonus: Int
+    /// Small "+2" chip with no flame, sized to sit beside the points without changing the row height.
+    var compact: Bool = false
 
     var body: some View {
         if bonus > 0 {
             HStack(spacing: 2) {
-                Image(systemName: bonus >= 5 ? "flame.fill" : "flame")
+                if !compact { Image(systemName: bonus >= 5 ? "flame.fill" : "flame") }
                 Text("+\(bonus)")
             }
-            .font(.caption2.bold())
+            .font(compact ? .system(size: 10, weight: .heavy) : .caption2.bold())
             .foregroundStyle(.white)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, compact ? 4 : 6)
+            .padding(.vertical, compact ? 1 : 2)
             .background(bonus >= 5 ? Color.red : Color.orange, in: Capsule())
             .transition(.scale(scale: 0.5).combined(with: .opacity))
         }
@@ -171,7 +173,8 @@ struct ScoreCell: View {
                     .redacted(reason: .placeholder)
             } else if let line, let result {
                 content(line: line, result: result)
-                if line.state != .scheduled, !line.statusText.isEmpty {
+                // Only live games (and OT finals) need a status line. A plain "Final" on every row is noise.
+                if line.state == .live || (line.state == .final && line.statusText.contains("/")), !line.statusText.isEmpty {
                     Text(line.statusText)
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(line.state == .live ? Color.green : Color.secondary)
@@ -226,6 +229,10 @@ struct ScoreCell: View {
                     .contentTransition(.numericText(value: Double(pts)))
                     .foregroundStyle(playedZero ? Color.orange : (result.isCounted ? Color.primary : Color.secondary))
             }
+            .overlay(alignment: .topTrailing) {
+                BonusBadge(bonus: result.bonus, compact: true)
+                    .offset(x: 18, y: -6)
+            }
             if let made = line.fgm, let att = line.fga {
                 Text("\(made)-\(att)")
                     .font(.system(size: 12, weight: .medium).monospacedDigit())
@@ -245,7 +252,6 @@ struct ScoreCell: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
-            BonusBadge(bonus: result.bonus)
         }
     }
 }

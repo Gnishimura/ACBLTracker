@@ -276,6 +276,7 @@ struct LineupView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .contentMargins(.bottom, 80, for: .scrollContent)   // keeps the last row clear of the floating tab bar
             .environment(\.editMode, .constant(listEditMode))
             .navigationTitle(lineupStore.lineup.teamName)
             .navigationBarTitleDisplayMode(.inline)
