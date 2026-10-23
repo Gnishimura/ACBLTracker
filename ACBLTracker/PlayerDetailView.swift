@@ -11,6 +11,16 @@ struct PlayerDetailView: View {
 
     @State private var recent: [RecentGame]?
     @State private var recentFailed = false
+    @State private var liveBox: FullBox?
+    @State private var liveBoxFailed = false
+
+    /// His counting game that is in progress right now, if any. Only one of the two can be live at a time.
+    private var liveLine: GameLine? {
+        for g in 0..<2 {
+            if let line = week.results?.line(for: player.id, game: g), line.state == .live { return line }
+        }
+        return nil
+    }
 
     var body: some View {
         let display = directory.display(for: player)
@@ -38,6 +48,8 @@ struct PlayerDetailView: View {
                 gameSection(0)
                 gameSection(1)
 
+                liveBoxSection
+
                 recentSection
 
                 if let total = week.results?.playerTotal(player.id) {
@@ -57,6 +69,8 @@ struct PlayerDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
             }
             .task { await loadRecent() }
+            // Restarts when the live game changes, and stops on its own when the game ends or the sheet closes.
+            .task(id: liveLine?.eventID) { await pollLiveBox() }
         }
         .presentationDetents([.medium, .large])
     }
@@ -186,6 +200,55 @@ struct PlayerDetailView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    // MARK: Live box score
+
+    /// The whole game's box score, both teams, while one of his counting games is in progress.
+    @ViewBuilder
+    private var liveBoxSection: some View {
+        if let line = liveLine {
+            Section {
+                if let liveBox {
+                    LiveBoxScoreView(
+                        box: liveBox,
+                        highlightID: player.espnID,
+                        teamID: player.espnID.flatMap { directory.player(id: $0)?.teamID }
+                    )
+                    .listRowInsets(EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12))
+                } else if liveBoxFailed {
+                    Text("Couldn't load the box score").foregroundStyle(.secondary)
+                } else {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Loading...").foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                HStack {
+                    Text("BOX SCORE - \(line.opponent)")
+                    Spacer()
+                    Text(line.statusText).foregroundStyle(.green)
+                }
+            }
+        }
+    }
+
+    /// Refreshes the box score every 20 seconds while his game is live. One ESPN call per refresh.
+    private func pollLiveBox() async {
+        liveBox = nil
+        liveBoxFailed = false
+        guard let eventID = liveLine?.eventID else { return }
+        while !Task.isCancelled {
+            do {
+                liveBox = try await ESPNClient.shared.fullBoxscore(eventID: eventID)
+                liveBoxFailed = false
+            } catch {
+                if Task.isCancelled { return }
+                liveBoxFailed = liveBox == nil   // a failed refresh keeps the last box score on screen
+            }
+            try? await Task.sleep(for: .seconds(20))
+        }
     }
 
     // MARK: Recent form

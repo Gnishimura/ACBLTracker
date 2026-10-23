@@ -44,6 +44,30 @@ struct BoxStats: Codable, Equatable {
     var plusMinus: Int? = nil
 }
 
+/// One player's row in a full game box score.
+struct BoxRow: Identifiable, Equatable {
+    let id: String            // ESPN athlete id
+    let name: String
+    let starter: Bool
+    let played: Bool
+    let reason: String?       // ESPN's DNP reason ("Coach's Decision"), when it gives one
+    let stats: [String]       // aligned with TeamBox.labels
+}
+
+/// One team's half of a full box score.
+struct TeamBox: Identifiable, Equatable {
+    let id: String            // ESPN team id
+    let abbr: String
+    let labels: [String]      // upper-cased column labels: MIN, PTS, FG, 3PT ...
+    let rows: [BoxRow]
+    let totals: [String]      // team totals, aligned with labels. Empty if ESPN omits them.
+}
+
+/// Both teams of a game. Used by the live box score on the player detail screen.
+struct FullBox: Equatable {
+    let teams: [TeamBox]
+}
+
 struct DirectoryTeam: Codable, Hashable {
     let id: String
     let abbr: String
@@ -252,6 +276,35 @@ actor ESPNClient {
         return out
     }
 
+    /// Every player on both teams, in ESPN's order (starters first). Same endpoint as `boxscore`, kept whole.
+    func fullBoxscore(eventID: String) async throws -> FullBox {
+        let r: SummaryResponse = try await get("/summary", query: ["event": eventID], type: SummaryResponse.self)
+        var teams: [TeamBox] = []
+        for t in r.boxscore?.players ?? [] {
+            guard let group = t.statistics?.first, let info = t.team else { continue }
+            let rows: [BoxRow] = (group.athletes ?? []).compactMap { a in
+                guard let id = a.athlete?.id else { return nil }
+                let stats = a.stats ?? []
+                let didNotPlay = (a.didNotPlay ?? false) || stats.isEmpty
+                return BoxRow(
+                    id: id,
+                    name: a.athlete?.shortName ?? a.athlete?.displayName ?? "",
+                    starter: a.starter ?? false,
+                    played: !didNotPlay,
+                    reason: didNotPlay ? a.reason : nil,
+                    stats: didNotPlay ? [] : stats
+                )
+            }
+            teams.append(TeamBox(
+                id: info.id ?? "", abbr: info.abbreviation ?? "",
+                labels: (group.labels ?? []).map { $0.uppercased() },
+                rows: rows, totals: group.totals ?? []
+            ))
+        }
+        if teams.isEmpty { throw ClientError.noData }
+        return FullBox(teams: teams)
+    }
+
     // MARK: Injuries
 
     /// League-wide injury report. Keyed by ESPN athlete id, or "name:<normalized name>" when ESPN omits the id.
@@ -413,18 +466,32 @@ private struct SummaryResponse: Decodable {
     let boxscore: Box?
 
     struct Box: Decodable { let players: [TeamPlayers]? }
-    struct TeamPlayers: Decodable { let statistics: [StatGroup]? }
+    struct TeamPlayers: Decodable {
+        let team: TeamInfo?
+        let statistics: [StatGroup]?
+    }
+    struct TeamInfo: Decodable {
+        let id: String?
+        let abbreviation: String?
+    }
     struct StatGroup: Decodable {
         let names: [String]?
         let labels: [String]?
         let athletes: [AthleteLine]?
+        let totals: [String]?
     }
     struct AthleteLine: Decodable {
         let athlete: Athlete?
         let stats: [String]?
         let didNotPlay: Bool?
+        let starter: Bool?
+        let reason: String?
     }
-    struct Athlete: Decodable { let id: String? }
+    struct Athlete: Decodable {
+        let id: String?
+        let displayName: String?
+        let shortName: String?
+    }
 }
 
 private struct InjuriesResponse: Decodable {

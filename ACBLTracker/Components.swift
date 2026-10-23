@@ -255,3 +255,118 @@ struct ScoreCell: View {
         }
     }
 }
+
+/// Full box score for a live game: a team switch, a pinned name column, and stat columns that scroll sideways.
+/// The tracked player's row is tinted so he's easy to find.
+struct LiveBoxScoreView: View {
+    let box: FullBox
+    /// ESPN athlete id of the player whose detail screen this is.
+    let highlightID: String?
+    /// His team's ESPN id. That team is shown first.
+    let teamID: String?
+
+    @State private var picked: String?
+
+    private static let columns = ["MIN", "PTS", "FG", "3PT", "FT", "REB", "AST", "STL", "BLK", "TO", "PF", "+/-"]
+    private let rowHeight: CGFloat = 26
+    private let nameWidth: CGFloat = 96
+
+    private func width(_ label: String) -> CGFloat {
+        switch label {
+        case "FG", "3PT", "FT": return 46
+        case "MIN", "PTS": return 38
+        default: return 34
+        }
+    }
+
+    private var statsWidth: CGFloat { Self.columns.reduce(0) { $0 + width($1) } }
+
+    private var team: TeamBox? {
+        let id = picked ?? teamID
+        return box.teams.first { $0.id == id } ?? box.teams.first
+    }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            if box.teams.count > 1 {
+                Picker("Team", selection: Binding(get: { team?.id ?? "" }, set: { picked = $0 })) {
+                    ForEach(box.teams) { Text($0.abbr).tag($0.id) }
+                }
+                .pickerStyle(.segmented)
+            }
+            if let team { table(team) }
+        }
+    }
+
+    private func table(_ team: TeamBox) -> some View {
+        let indexes = Self.columns.map { team.labels.firstIndex(of: $0) }
+        return HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("PLAYER").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                    .frame(width: nameWidth, height: rowHeight, alignment: .leading)
+                ForEach(team.rows) { row in
+                    Text(row.name)
+                        .font(.system(size: 12, weight: row.starter ? .semibold : .regular))
+                        .foregroundStyle(row.played ? Color.primary : Color.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(width: nameWidth, height: rowHeight, alignment: .leading)
+                        .background(tint(row))
+                }
+                if !team.totals.isEmpty {
+                    Text("TEAM").font(.system(size: 11, weight: .bold))
+                        .frame(width: nameWidth, height: rowHeight, alignment: .leading)
+                }
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 0) {
+                        ForEach(Self.columns, id: \.self) { label in
+                            Text(label).font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                                .frame(width: width(label), height: rowHeight)
+                        }
+                    }
+                    ForEach(team.rows) { row in
+                        if row.played {
+                            HStack(spacing: 0) {
+                                ForEach(Array(Self.columns.enumerated()), id: \.offset) { offset, label in
+                                    cell(value(row.stats, indexes[offset]), label: label, bold: label == "PTS")
+                                }
+                            }
+                            .background(tint(row))
+                        } else {
+                            Text(row.reason ?? "Hasn't played")
+                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                                .frame(width: statsWidth, height: rowHeight, alignment: .leading)
+                                .background(tint(row))
+                        }
+                    }
+                    if !team.totals.isEmpty {
+                        HStack(spacing: 0) {
+                            ForEach(Array(Self.columns.enumerated()), id: \.offset) { offset, label in
+                                cell(value(team.totals, indexes[offset]), label: label, bold: true)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func value(_ stats: [String], _ index: Int?) -> String {
+        guard let index, index < stats.count, !stats[index].isEmpty else { return "-" }
+        return stats[index]
+    }
+
+    private func cell(_ text: String, label: String, bold: Bool) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: bold ? .bold : .regular).monospacedDigit())
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(width: width(label), height: rowHeight)
+    }
+
+    private func tint(_ row: BoxRow) -> Color {
+        row.id == highlightID ? Color.accentColor.opacity(0.14) : Color.clear
+    }
+}
