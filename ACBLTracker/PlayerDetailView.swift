@@ -211,7 +211,7 @@ struct PlayerDetailView: View {
             HStack {
                 Text("RECENT FORM")
                 Spacer()
-                if let avg = averageText { Text(avg) }
+                if let avg = averageText { Text((formEmoji.map { $0 + " " } ?? "") + avg) }
             }
         }
     }
@@ -222,6 +222,31 @@ struct PlayerDetailView: View {
         guard !pts.isEmpty else { return nil }
         let avg = Double(pts.reduce(0, +)) / Double(pts.count)
         return "\(pts.count)-game avg \(String(format: "%.1f", avg)) pts"
+    }
+
+    /// Needs 2+ games. Hot/cold by scoring average (30+ is where the bonus starts), plus a trend arrow when there are 4+.
+    private var formEmoji: String? {
+        guard let recent else { return nil }
+        let pts = recent.compactMap { $0.points }   // newest first
+        guard pts.count >= 2 else { return nil }
+        let avg = Double(pts.reduce(0, +)) / Double(pts.count)
+        var out = ""
+        if avg >= 30 { out = "\u{1F525}\u{1F525}" } else if avg >= 22 { out = "\u{1F525}" } else if avg < 10 { out = "\u{1F9CA}" }
+        if pts.count >= 4 {
+            let lastTwo = Double(pts.prefix(2).reduce(0, +)) / 2
+            let earlier = Double(pts.dropFirst(2).reduce(0, +)) / Double(pts.count - 2)
+            if lastTwo - earlier >= 5 { out += "\u{1F4C8}" } else if earlier - lastTwo >= 5 { out += "\u{1F4C9}" }
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    private func gameEmoji(_ pts: Int?) -> String {
+        guard let pts else { return "" }
+        if pts >= 40 { return "\u{1F680} " }   // rocket: +5 bonus
+        if pts >= 30 { return "\u{1F525} " }   // fire: +2 bonus
+        if pts == 0 { return "\u{1F634} " }    // sleeping: DNP or goose egg
+        if pts <= 8 { return "\u{1F9CA} " }    // ice
+        return ""
     }
 
     private func recentRow(_ game: RecentGame) -> some View {
@@ -239,7 +264,7 @@ struct PlayerDetailView: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
-                Text(game.points.map(String.init) ?? "-").font(.title3.bold()).monospacedDigit()
+                Text(gameEmoji(game.points) + (game.points.map(String.init) ?? "-")).font(.title3.bold()).monospacedDigit()
                 Text(parts.joined(separator: " - "))
                     .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
             }
