@@ -391,8 +391,8 @@ final class WeekStore: ObservableObject {
     }
 
     /// Subs who outscored the starter at their position in a finished game, one entry per starter per game.
-    /// The gain is the sub's full points (plus bonus) minus what the starter counted and what the sub already counted.
-    /// It's an upper bound: it ignores the half points the benched starter might have picked up as a playing sub.
+    /// The gain is what the sub would have counted as a starter (full points plus any bonus) minus what the starter counted.
+    /// It ignores the half points the sub already counted and any half points the benched starter would pick up.
     func regrets() -> [Regret] {
         guard let results else { return [] }
         let lineup = lineupStore.lineup
@@ -406,7 +406,7 @@ final class WeekStore: ObservableObject {
                 var best: (sub: RosterPlayer, gain: Int)? = nil
                 for sub in lineup.subs where !sub.isEmpty && sub.position == slotPosition && !taken.contains(sub.id) {
                     guard let r = perGame[sub.id], r.role != .promoted, case .played(let pts) = r.availability else { continue }
-                    let gain = pts + rules.bonus(for: pts) - r.countedPoints - sr.total
+                    let gain = pts + rules.bonus(for: pts) - sr.total
                     if gain > (best?.gain ?? 0) { best = (sub, gain) }
                 }
                 if let best {
