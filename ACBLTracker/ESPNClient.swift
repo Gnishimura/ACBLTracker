@@ -279,7 +279,10 @@ actor ESPNClient {
     /// A player's last five games this season, newest first. Cached for five minutes.
     func gameLog(athleteID: String) async throws -> [RecentGame] {
         if let hit = gameLogCache[athleteID], Date().timeIntervalSince(hit.fetched) < 300 { return hit.games }
-        guard let url = URL(string: "https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/\(athleteID)/gamelog")
+        // ESPN names a season by the year it ends: 2026-27 is 2027. Without this it may return the wrong season.
+        let comps = Calendar(identifier: .gregorian).dateComponents([.year, .month], from: Date())
+        let season = (comps.month ?? 1) >= 9 ? (comps.year ?? 2026) + 1 : (comps.year ?? 2027)
+        guard let url = URL(string: "https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/\(athleteID)/gamelog?season=\(season)")
         else { throw ClientError.badStatus }
         let (data, response) = try await session.data(from: url)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -297,8 +300,11 @@ actor ESPNClient {
 
         // Regular season if there is one, otherwise whatever ESPN has (preseason early in the year).
         let types = r.seasonTypes ?? []
-        let regular = types.filter { ($0.displayName ?? "").lowercased().contains("regular") }
-        let chosen = regular.isEmpty ? types : regular
+        func hasEvents(_ t: GameLogResponse.SeasonType) -> Bool {
+            (t.categories ?? []).contains { !($0.events ?? []).isEmpty }
+        }
+        let regular = types.filter { ($0.displayName ?? "").lowercased().contains("regular") && hasEvents($0) }
+        let chosen = regular.isEmpty ? types.filter(hasEvents) : regular
 
         var out: [RecentGame] = []
         var seen = Set<String>()
