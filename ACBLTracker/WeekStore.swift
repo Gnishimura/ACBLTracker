@@ -419,12 +419,28 @@ final class WeekStore: ObservableObject {
     }
 
     /// "Outscored J. Brunson by 8 in G1" for a sub who would have beaten his starter.
+    /// Checked per sub, so every sub who beat a same-position starter gets a note even when a better sub
+    /// already claimed that starter's slot in the total.
     func regretNote(for playerID: UUID) -> String? {
-        let hits = regrets().filter { $0.sub.id == playerID }
-        guard !hits.isEmpty else { return nil }
-        return hits
-            .map { "Outscored \($0.starter.name.abbreviatedName) by \($0.gain) in G\($0.game + 1)" }
-            .joined(separator: ", ")
+        guard let results else { return nil }
+        let lineup = lineupStore.lineup
+        guard let sub = lineup.subs.first(where: { $0.id == playerID && !$0.isEmpty }) else { return nil }
+        var parts: [String] = []
+        for game in 0..<2 {
+            let perGame = results.perGame[game]
+            guard let r = perGame[sub.id], r.role != .promoted, case .played(let pts) = r.availability else { continue }
+            var best: (starter: RosterPlayer, gain: Int)? = nil
+            for (i, starter) in lineup.starters.enumerated()
+            where !starter.isEmpty && Lineup.starterPositions[i] == sub.position {
+                guard let sr = perGame[starter.id], sr.role == .starter, case .played = sr.availability else { continue }
+                let gain = pts + rules.bonus(for: pts) - sr.total
+                if gain > (best?.gain ?? 0) { best = (starter, gain) }
+            }
+            if let best {
+                parts.append("Outscored \(best.starter.name.abbreviatedName) by \(best.gain) in G\(game + 1)")
+            }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 
     /// Points that sat on the bench across both games (sum of the best swap for each starter).
