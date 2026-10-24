@@ -65,6 +65,8 @@ final class WeekStore: ObservableObject {
     private let lineupStore: LineupStore
     private var teamGames: [String: [GameInfo]] = [:]
     private var boxes: [String: [String: PlayerLine]] = [:]   // eventID -> athleteID -> line
+    /// Games whose box score was fetched after the game went final. A copy taken while the game was live is only a snapshot.
+    private var finalBoxes: Set<String> = []
     private var rerunRequested = false
 
     /// Finished weeks, saved on the phone so they never need ESPN again. Keyed like LineupStore snapshots.
@@ -228,7 +230,7 @@ final class WeekStore: ObservableObject {
         for p in lineup.all {
             guard let id = p.espnID, let tid = directory.player(id: id)?.teamID else { continue }
             for g in byTeam[tid] ?? [] where g.state != .scheduled {
-                if g.state == .live || boxes[g.id] == nil { needed.insert(g.id) }
+                if g.state == .live || !finalBoxes.contains(g.id) { needed.insert(g.id) }
             }
         }
         let fetched = await withTaskGroup(of: (String, [String: PlayerLine]?).self) { group -> [String: [String: PlayerLine]] in
@@ -241,7 +243,10 @@ final class WeekStore: ObservableObject {
             }
             return out
         }
-        for (eid, box) in fetched { boxes[eid] = box }
+        for (eid, box) in fetched {
+            boxes[eid] = box
+            if games[eid]?.state == .final { finalBoxes.insert(eid) }
+        }
 
         guard start == weekStart else { return }   // user changed weeks mid-fetch
         teamGames = byTeam
