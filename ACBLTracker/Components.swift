@@ -256,7 +256,7 @@ struct ScoreCell: View {
     }
 }
 
-/// Full box score for a live game: a team switch, a pinned name column, and stat columns that scroll sideways.
+/// Full box score for a game (live or final): a team switch, a pinned name column, and stat columns that scroll sideways.
 /// The tracked player's row is tinted so he's easy to find.
 struct LiveBoxScoreView: View {
     let box: FullBox
