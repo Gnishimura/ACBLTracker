@@ -70,6 +70,49 @@ struct Injury: Equatable {
     let status: String      // "Out", "Day-To-Day"
     let part: String?       // "Knee"
     let detail: String?     // "Sprain"
+    // Drill-down fields. All optional because ESPN fills them in unevenly.
+    var side: String? = nil           // "Left" / "Right"
+    var shortComment: String? = nil   // one-line news blurb
+    var longComment: String? = nil    // fuller blurb
+    var reportedAt: Date? = nil       // when ESPN posted the update
+    var returnDate: Date? = nil       // estimated return, when ESPN has one
+
+    /// Longest blurb ESPN gave us, or nil when there's nothing beyond the summary line.
+    var blurb: String? {
+        let text = [longComment, shortComment].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        return text
+    }
+
+    /// True when the detail page has something extra to show.
+    var hasDrillDown: Bool { blurb != nil || returnDate != nil || reportedAt != nil }
+
+    /// "Left knee sprain" when ESPN gives a side, otherwise the same text as the summary line.
+    var bodyPartText: String? {
+        guard let part, !part.isEmpty else { return nil }
+        if let side, !side.isEmpty, !["not specified", "n/a"].contains(side.lowercased()) { return "\(side) \(part.lowercased())" }
+        return part
+    }
+
+    /// ESPN timestamps come as "2026-10-24T18:32Z" or "2026-11-01" depending on the field.
+    static func parseDate(_ s: String?) -> Date? {
+        guard let s, !s.isEmpty else { return nil }
+        let full = ISO8601DateFormatter()
+        full.formatOptions = [.withInternetDateTime]
+        if let d = full.date(from: s) { return d }
+        let frac = ISO8601DateFormatter()
+        frac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = frac.date(from: s) { return d }
+        let short = ISO8601DateFormatter()
+        short.formatOptions = [.withFullDate]
+        if let d = short.date(from: String(s.prefix(10))) { return d }
+        // ESPN sometimes drops the seconds: "2026-10-24T18:32Z"
+        let noSeconds = DateFormatter()
+        noSeconds.locale = Locale(identifier: "en_US_POSIX")
+        noSeconds.timeZone = TimeZone(identifier: "UTC")
+        noSeconds.dateFormat = "yyyy-MM-dd'T'HH:mm'Z'"
+        return noSeconds.date(from: s)
+    }
 
     /// "Out - Knee sprain", "Day-To-Day - Illness". Just the status if ESPN gives no detail.
     var summary: String {
@@ -263,7 +306,16 @@ actor ESPNClient {
                 var status = entry.status ?? ""
                 if status.isEmpty { status = (entry.type?.description ?? "").capitalized }
                 if status.lowercased() == "active" { continue }
-                let injury = Injury(status: status, part: entry.details?.type, detail: entry.details?.detail)
+                let injury = Injury(
+                    status: status,
+                    part: entry.details?.type,
+                    detail: entry.details?.detail,
+                    side: entry.details?.side,
+                    shortComment: entry.shortComment,
+                    longComment: entry.longComment,
+                    reportedAt: Injury.parseDate(entry.date),
+                    returnDate: Injury.parseDate(entry.details?.returnDate)
+                )
                 if let id = entry.athlete?.id {
                     out[id] = injury
                 } else if let name = entry.athlete?.displayName {
@@ -433,6 +485,9 @@ private struct InjuriesResponse: Decodable {
     struct TeamEntry: Decodable { let injuries: [Entry]? }
     struct Entry: Decodable {
         let status: String?
+        let date: String?
+        let shortComment: String?
+        let longComment: String?
         let athlete: Athlete?
         let type: TypeRef?
         let details: Details?
@@ -445,6 +500,8 @@ private struct InjuriesResponse: Decodable {
     struct Details: Decodable {
         let type: String?
         let detail: String?
+        let side: String?
+        let returnDate: String?
     }
 }
 

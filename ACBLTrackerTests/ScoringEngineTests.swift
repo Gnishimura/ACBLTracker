@@ -287,4 +287,26 @@ final class ScoringEngineTests: XCTestCase {
         XCTAssertEqual(Injury(status: "Out", part: nil, detail: "Rest").summary, "Out - Rest")
         XCTAssertEqual(Injury(status: "Out", part: nil, detail: nil).summary, "Out")
     }
+
+    func testInjuryDrillDownFields() {
+        // Nothing beyond the summary line: no drill-down.
+        XCTAssertFalse(Injury(status: "Out", part: "Knee", detail: "Sprain").hasDrillDown)
+
+        // Prefers the long blurb, falls back to the short one, ignores blank text.
+        XCTAssertEqual(Injury(status: "Out", part: nil, detail: nil, shortComment: "Short", longComment: "Long").blurb, "Long")
+        XCTAssertEqual(Injury(status: "Out", part: nil, detail: nil, shortComment: "Short", longComment: "  ").blurb, "Short")
+        XCTAssertTrue(Injury(status: "Out", part: nil, detail: nil, shortComment: "Short").hasDrillDown)
+
+        // Side shows up in the body-part text only when ESPN actually specifies one.
+        XCTAssertEqual(Injury(status: "Out", part: "Knee", detail: nil, side: "Left").bodyPartText, "Left knee")
+        XCTAssertEqual(Injury(status: "Out", part: "Knee", detail: nil, side: "Not Specified").bodyPartText, "Knee")
+    }
+
+    func testInjuryDateParsing() {
+        XCTAssertNotNil(Injury.parseDate("2026-10-24T18:32:00Z"))
+        XCTAssertNotNil(Injury.parseDate("2026-10-24T18:32Z"))
+        XCTAssertNotNil(Injury.parseDate("2026-11-01"))
+        XCTAssertNil(Injury.parseDate(nil))
+        XCTAssertNil(Injury.parseDate(""))
+    }
 }
