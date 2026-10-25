@@ -258,7 +258,10 @@ struct LineupView: View {
     @EnvironmentObject var directory: PlayerDirectory
 
     @AppStorage(Reminders.storageKey) private var remindersOn = true
+    @AppStorage(LineupEmail.promptKey) private var emailPrompt = true
     @State private var editing = false
+    @State private var editStartOrder: [UUID]?
+    @State private var showEmail = false
     @State private var selected: SlotID?
     @State private var replacing: SlotID?
     @State private var detail: RosterPlayer?
@@ -325,7 +328,12 @@ struct LineupView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     if lineupStore.isEditable {
                         Button(editing ? "Done" : "Edit") {
-                            editing.toggle()
+                            if editing {
+                                finishEditing()
+                            } else {
+                                editStartOrder = lineupStore.lineup.all.map(\.id)
+                                editing = true
+                            }
                             selected = nil
                         }
                     }
@@ -340,6 +348,7 @@ struct LineupView: View {
                             Task { await Reminders.sync(enabled: remindersOn) }
                         }
                         if lineupStore.isEditable {
+                            Button("Email lineup", systemImage: "envelope") { showEmail = true }
                             Button("Clear this week's lineup", systemImage: "trash", role: .destructive) {
                                 confirmClear = true
                             }
@@ -373,8 +382,12 @@ struct LineupView: View {
             .onChange(of: lineupStore.isEditable) { _, editable in
                 if !editable {
                     editing = false
+                    editStartOrder = nil
                     selected = nil
                 }
+            }
+            .sheet(isPresented: $showEmail) {
+                LineupEmailSheet()
             }
             .sheet(item: $replacing) { slot in
                 PlayerPickerView(slot: slot)
@@ -593,6 +606,15 @@ struct LineupView: View {
             errorTick += 1
             showSwapError = true
         }
+    }
+
+    /// Leaving edit mode. If the order actually changed, offer to draft the lineup email.
+    /// Compared by player id, so a background ESPN match during editing doesn't count as a change.
+    private func finishEditing() {
+        editing = false
+        defer { editStartOrder = nil }
+        guard emailPrompt, let before = editStartOrder, before != lineupStore.lineup.all.map(\.id) else { return }
+        showEmail = true
     }
 
     private func startRename() {

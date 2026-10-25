@@ -32,6 +32,7 @@ It's a personal project, not an App Store app, so you install it yourself from t
 - **Lineup tab:** 2 guards, 2 forwards and 1 center as starters, 3 on the bench, 6 on the deep bench. Two game columns (G1, G2) per the league's first-two-games rule, with a team total under each.
 - **Add players:** pull down to reveal the search bar, find a player, tap him, and pick the position your league lists him at. He goes into the first open spot.
 - **Move players:** tap **Edit** and drag the handles to reorder across Starters, Bench and Deep bench. Starter spots only accept their position. Swipe a row left to **Replace** or **Remove**.
+- **Email your lineup:** when you tap **Done** after changing the order, the app offers to draft the week's lineup email (also under the **...** menu > Email lineup). Enter the recipients once, check the preview, and tap **Draft in Gmail**. It opens a prefilled draft in the Gmail app (or your default mail app) and sends nothing until you do.
 - **Weeks:** the arrows at the top step through the Tuesday-to-Monday league weeks. Each week keeps its own lineup, so past weeks show the roster you actually had. Past weeks are view-only and are saved on your phone once they're final.
 - **Nightly tab:** pick a day and see which of your players had a counting game, what they scored, and whether it counted.
 - **Rename your team:** tap the pencil on the top card.
