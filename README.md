@@ -6,7 +6,7 @@ It's a personal project, not an App Store app, so you install it yourself from t
 
 ## What you need
 
-- A **Mac** with **Xcode** (free in the Mac App Store; it's a big download)
+- A **Mac** with **Xcode** (free in the Mac App Store; it's a big download). If the App Store says your macOS is too old, download Xcode 26 from [developer.apple.com/download/all](https://developer.apple.com/download/all/) instead; the project opens in Xcode 26 and later.
 - An **iPhone** on iOS 17 or later, and a **cable**
 - Your **Apple ID** (the regular, free one. No paid developer account needed)
 
@@ -35,12 +35,21 @@ It's a personal project, not an App Store app, so you install it yourself from t
 - **Email your lineup:** when you tap **Done** after changing the order, the app offers to draft the week's lineup email (also under the **...** menu > Email lineup). Enter the recipients once, check the preview, and tap **Draft in Gmail**. It opens a prefilled draft in the Gmail app (or your default mail app) and sends nothing until you do.
 - **Weeks:** the arrows at the top step through the Tuesday-to-Monday league weeks. Each week keeps its own lineup, so past weeks show the roster you actually had. Past weeks are view-only and are saved on your phone once they're final.
 - **Nightly tab:** pick a day and see which of your players had a counting game, what they scored, and whether it counted.
+- **Games tab:** every NBA game on a day, with live scores. Tap a game for its box score (minutes, FG made-attempted, points); your players are starred.
+- **Free Agents tab:** players not on any team in the league sheet's roster tab for the current week, averaging over 10 points in their last 3 games, sorted by that average. Shows last 3, last 5 and season averages. Pull down to re-read the sheet after a pickup.
+- **Player screen:** tap any player name (Lineup, Games or Free Agents) for his full game log and Rotowire news from the past week. Season PPG shows next to names on the Lineup and Nightly tabs.
 - **Rename your team:** tap the pencil on the top card.
 - **Badges:** orange **+2** for a 30-39 point game, red **+5** for 40+. A red **DNP** tag means he didn't play; an orange **0** with "played" means he played and scored nothing. A red **+** next to a name means he's on the injury report.
 
 ## The 7-day limit
 
 Apps installed with a free Apple ID stop opening after **7 days**. Your data stays on the phone. To renew, plug in, open the project in Xcode, and press **Cmd+R** again. Don't delete the app first, or you'll lose your roster and saved weeks.
+
+**Or let your Mac renew it.** `renew.sh` rebuilds with a fresh 7-day signature and reinstalls over the existing app (data kept), over Wi-Fi if the phone is unlocked nearby. After the steps above have worked once:
+
+1. Copy `renew.env.example` to `renew.env` and fill in your team ID, bundle ID and phone ID.
+2. Run `./renew.sh --force` once to check it works.
+3. Run `./renew.sh --schedule`. Your Mac then checks daily at noon and renews when 2 days or less are left, with a notification either way.
 
 ## Scoring rules
 

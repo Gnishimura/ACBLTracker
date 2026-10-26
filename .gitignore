@@ -1,0 +1,8 @@
+.DS_Store
+xcuserdata/
+build/
+
+# renew.sh: your own signing settings and logs
+renew.env
+renew.log
+launchd.log
