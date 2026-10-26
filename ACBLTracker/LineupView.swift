@@ -216,6 +216,7 @@ struct LineupRow: View {
                 HStack(spacing: 5) {
                     PlayerName(name: player.name)
                     if injury != nil { InjuryMark() }
+                    SeasonPPG(espnID: player.espnID)
                 }
                 HStack(spacing: 6) {
                     PositionPill(position: player.position)

@@ -1,16 +1,20 @@
 import SwiftUI
 
-/// Tap a player on the Lineup tab: where he sits, his next game, the stat line for each of his two counting games,
-/// how each one scored, and how he's played lately.
+/// Tap a player on the Lineup tab or in a Games box score: his season average, game log and latest news.
 struct PlayerDetailView: View {
     let player: RosterPlayer
     @EnvironmentObject var week: WeekStore
     @EnvironmentObject var directory: PlayerDirectory
-    @EnvironmentObject var lineupStore: LineupStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var recent: [RecentGame]?
     @State private var recentFailed = false
+    @State private var preseason: [RecentGame] = []
+    @State private var seasonPPG: Double?
+    @State private var showAllGames = false
+    @State private var news: [PlayerNews]?
+    @State private var newsFailed = false
+    @State private var expandedNews: Set<String> = []
 
     var body: some View {
         let display = directory.display(for: player)
@@ -24,6 +28,11 @@ struct PlayerDetailView: View {
                             HStack(spacing: 6) {
                                 PositionPill(position: player.position)
                                 TeamTag(display: display)
+                                if let ppg = seasonPPG ?? player.espnID.flatMap({ directory.seasonPPG[$0] }) {
+                                    Text(String(format: "%.1f ppg", ppg))
+                                        .font(.caption.weight(.semibold)).monospacedDigit()
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                             if let injury = week.injury(for: player) {
                                 Text(injury.summary).font(.caption.weight(.semibold)).foregroundStyle(.red)
@@ -33,22 +42,9 @@ struct PlayerDetailView: View {
                     .padding(.vertical, 4)
                 }
 
-                Section("Your lineup") { lineupRows }
-
-                gameSection(0)
-                gameSection(1)
-
                 recentSection
 
-                if let total = week.results?.playerTotal(player.id) {
-                    Section("This week") {
-                        HStack {
-                            Text("Points counted")
-                            Spacer()
-                            Text("\(total)").font(.title3.bold()).monospacedDigit()
-                        }
-                    }
-                }
+                newsSection
             }
             .listStyle(.insetGrouped)
             .navigationTitle(player.name)
@@ -57,147 +53,33 @@ struct PlayerDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
             }
             .task { await loadRecent() }
+            .task { await loadNews() }
         }
         .presentationDetents([.medium, .large])
     }
 
-    // MARK: Your lineup
+    // MARK: Game log
 
-    @ViewBuilder
-    private var lineupRows: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("Slot")
-            Spacer()
-            Text(slotText).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
-        }
-        if let note = week.regretNote(for: player.id) {
-            Text(note).font(.subheadline.weight(.semibold)).foregroundStyle(.orange)
-        }
-        if let next = nextGameText {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Next game")
-                Spacer()
-                Text(next).foregroundStyle(.secondary).multilineTextAlignment(.trailing)
-            }
-        }
-    }
-
-    private var slotText: String {
-        guard let slot = lineupStore.lineup.slot(of: player.id) else { return "Not on this week's lineup" }
-        switch slot {
-        case .starter(let i):
-            return "Starter at \(Lineup.starterPositions[i].rawValue) - full points and bonus"
-        case .bench(let i):
-            return "Bench, sub #\(i + 1) - half points when he plays"
-        case .deep(let i):
-            return "Deep bench, sub #\(i + 4) - counts only if a sub ahead of him sits"
-        }
-    }
-
-    /// The first of his two counting games that hasn't finished.
-    private var nextGameText: String? {
-        var sawGame = false
-        for g in 0..<2 {
-            guard let line = week.results?.line(for: player.id, game: g) else { continue }
-            sawGame = true
-            switch line.state {
-            case .live:
-                return "\(line.opponent) - live now"
-            case .scheduled:
-                return "\(line.opponent) - " + line.date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
-            case .final:
-                continue
-            }
-        }
-        return sawGame ? "Both counting games are done" : nil
-    }
-
-    // MARK: One game
-
-    @ViewBuilder
-    private func gameSection(_ g: Int) -> some View {
-        let line = week.results?.line(for: player.id, game: g)
-        let result = week.results?.result(for: player.id, game: g)
-
-        Section {
-            if let line {
-                if line.state == .scheduled {
-                    HStack {
-                        Text("Tips off")
-                        Spacer()
-                        Text(line.date.formatted(date: .abbreviated, time: .shortened)).foregroundStyle(.secondary)
-                    }
-                } else if line.points == nil {
-                    Text(result?.availability.isDNP == true ? "Did not play" : "Waiting for the box score")
-                        .foregroundStyle(result?.availability.isDNP == true ? Color.red : Color.secondary)
-                } else {
-                    statGrid(line)
-                }
-                if let result, line.state != .scheduled {
-                    HStack {
-                        Text(roleText(result)).foregroundStyle(.secondary)
-                        Spacer()
-                        if result.isCounted {
-                            Text(result.bonus > 0 ? "\(result.countedPoints) + \(result.bonus) bonus" : "\(result.countedPoints) counted")
-                                .font(.subheadline.weight(.semibold)).monospacedDigit()
-                        }
-                    }
-                    .font(.subheadline)
-                }
-            } else {
-                Text("No game found for this week yet").foregroundStyle(.secondary)
-            }
-        } header: {
-            HStack {
-                Text("GAME \(g + 1)" + (line.map { " - \($0.opponent)" } ?? ""))
-                Spacer()
-                if let line, line.state == .live {
-                    Text(line.statusText).foregroundStyle(.green)
-                } else if let line, line.state == .final {
-                    Text(line.statusText)
-                }
-            }
-        }
-    }
-
-    private func statGrid(_ line: GameLine) -> some View {
-        let b = line.box
-        let cells: [(String, String)] = [
-            ("PTS", line.points.map(String.init) ?? "-"),
-            ("MIN", b?.minutes ?? "-"),
-            ("FG", pair(line.fgm, line.fga)),
-            ("FG%", percent(line.fgm, line.fga)),
-            ("3PT", pair(b?.tpm, b?.tpa)),
-            ("FT", pair(b?.ftm, b?.fta)),
-            ("REB", num(b?.reb)),
-            ("AST", num(b?.ast)),
-            ("STL", num(b?.stl)),
-            ("BLK", num(b?.blk)),
-            ("TO", num(b?.tov)),
-            ("+/-", signed(b?.plusMinus)),
-        ]
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 4), spacing: 16) {
-            ForEach(cells, id: \.0) { cell in
-                VStack(spacing: 2) {
-                    Text(cell.1).font(.headline).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
-                    Text(cell.0).font(.caption2).foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    // MARK: Recent form
-
+    /// Every game this season, counting or not: the latest five, then the rest on request.
+    /// While the regular season is under five games old, his preseason games follow, dimmed.
     @ViewBuilder
     private var recentSection: some View {
         Section {
             if let recent {
-                if recent.isEmpty {
+                if recent.isEmpty && preseason.isEmpty {
                     Text("No games played yet this season").foregroundStyle(.secondary)
                 } else {
-                    ForEach(recent) { recentRow($0) }
+                    ForEach(showAllGames ? recent : Array(recent.prefix(5))) { recentRow($0) }
+                    if recent.count > 5 {
+                        Button(showAllGames ? "Show fewer" : "Show all \(recent.count) games") {
+                            withAnimation(.easeInOut(duration: 0.15)) { showAllGames.toggle() }
+                        }
+                        .font(.subheadline)
+                    }
+                    if recent.count < 5 && !preseason.isEmpty {
+                        Text("PRESEASON").font(.caption2.bold()).foregroundStyle(.secondary)
+                        ForEach(preseason) { recentRow($0).opacity(0.6) }
+                    }
                 }
             } else if recentFailed {
                 Text("Couldn't load recent games").foregroundStyle(.secondary)
@@ -209,15 +91,18 @@ struct PlayerDetailView: View {
             }
         } header: {
             HStack {
-                Text("RECENT FORM")
+                Text("GAME LOG")
                 Spacer()
                 if let avg = averageText { Text((formEmoji.map { $0 + " " } ?? "") + avg) }
             }
         }
     }
 
+    /// The form badge and average in the header look at his latest five games only.
+    private var lastFive: [RecentGame]? { recent.map { Array($0.prefix(5)) } }
+
     private var averageText: String? {
-        guard let recent else { return nil }
+        guard let recent = lastFive else { return nil }
         let pts = recent.compactMap { $0.points }
         guard !pts.isEmpty else { return nil }
         let avg = Double(pts.reduce(0, +)) / Double(pts.count)
@@ -226,7 +111,7 @@ struct PlayerDetailView: View {
 
     /// Needs 2+ games. Hot/cold by scoring average (30+ is where the bonus starts), plus a trend arrow when there are 4+.
     private var formEmoji: String? {
-        guard let recent else { return nil }
+        guard let recent = lastFive else { return nil }
         let pts = recent.compactMap { $0.points }   // newest first
         guard pts.count >= 2 else { return nil }
         let avg = Double(pts.reduce(0, +)) / Double(pts.count)
@@ -273,39 +158,70 @@ struct PlayerDetailView: View {
 
     private func loadRecent() async {
         var games: [RecentGame] = []
-        if let id = player.espnID {
-            games = (try? await ESPNClient.shared.gameLog(athleteID: id)) ?? []
+        if let id = player.espnID, let log = try? await ESPNClient.shared.gameLog(athleteID: id) {
+            games = log.games
+            preseason = log.preseason
+            seasonPPG = log.seasonPPG
         }
         // ESPN's game log can lag early in the season; fall back to games already saved in this app.
         if games.isEmpty { games = week.savedGames(for: player.id) }
         recent = games
     }
 
-    // MARK: Helpers
+    // MARK: News
 
-    private func num(_ v: Int?) -> String { v.map(String.init) ?? "-" }
-
-    private func pair(_ made: Int?, _ att: Int?) -> String {
-        guard let made, let att else { return "-" }
-        return "\(made)-\(att)"
+    @ViewBuilder
+    private var newsSection: some View {
+        Section("Recent news") {
+            if let news {
+                if news.isEmpty {
+                    Text("No news in the past week").foregroundStyle(.secondary)
+                } else {
+                    ForEach(news) { newsRow($0) }
+                }
+            } else if newsFailed {
+                Text("Couldn't load news").foregroundStyle(.secondary)
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Loading...").foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 
-    private func percent(_ made: Int?, _ att: Int?) -> String {
-        guard let made, let att, att > 0 else { return "-" }
-        return "\(Int((Double(made) / Double(att) * 100).rounded()))%"
+    /// Headline always; tap to show the full fantasy take under it.
+    private func newsRow(_ item: PlayerNews) -> some View {
+        let expanded = expandedNews.contains(item.id)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(item.headline).font(.subheadline.weight(.semibold))
+            if let story = item.story {
+                Text(story)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .lineLimit(expanded ? nil : 2)
+            }
+            Text(item.published.formatted(.relative(presentation: .named)))
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard item.story != nil else { return }
+            withAnimation(.easeInOut(duration: 0.15)) {
+                if expanded { expandedNews.remove(item.id) } else { expandedNews.insert(item.id) }
+            }
+        }
     }
 
-    private func signed(_ v: Int?) -> String {
-        guard let v else { return "-" }
-        return v > 0 ? "+\(v)" : "\(v)"
-    }
-
-    private func roleText(_ r: PlayerGameResult) -> String {
-        switch r.role {
-        case .starter: return "Starter - full points"
-        case .promoted: return "Moved up to starters - full points"
-        case .playingSub: return "Playing sub - half points"
-        case .notCounted: return r.availability.isDNP ? "Did not play" : "Not counting this game"
+    private func loadNews() async {
+        guard let id = player.espnID else {
+            news = []
+            return
+        }
+        do {
+            news = try await ESPNClient.shared.news(athleteID: id)
+        } catch {
+            newsFailed = true
         }
     }
 }

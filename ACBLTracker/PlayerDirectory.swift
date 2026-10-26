@@ -23,6 +23,9 @@ final class PlayerDirectory: ObservableObject {
     @Published private(set) var isLoaded = false
     @Published private(set) var injuries: [String: Injury] = [:]
     private var injuriesFetchedAt: Date = .distantPast
+    /// Regular-season points per game, keyed by ESPN athlete id.
+    @Published private(set) var seasonPPG: [String: Double] = [:]
+    private var ppgFetchedAt: [String: Date] = [:]
 
     private var teamsByID: [String: DirectoryTeam] = [:]
     private var playersByID: [String: DirectoryPlayer] = [:]
@@ -65,6 +68,25 @@ final class PlayerDirectory: ObservableObject {
         if let fresh = try? await ESPNClient.shared.injuries() {
             injuries = fresh
             injuriesFetchedAt = Date()
+        }
+    }
+
+    /// Season scoring averages for these players, each refreshed at most every 30 minutes.
+    /// A failed fetch isn't recorded, so it's retried on the next call.
+    func loadSeasonPPG(for ids: [String]) async {
+        let due = Set(ids.filter { Date().timeIntervalSince(ppgFetchedAt[$0] ?? .distantPast) > 1800 })
+        guard !due.isEmpty else { return }
+        let fresh = await withTaskGroup(of: (String, Double?)?.self) { group -> [(String, Double?)] in
+            for id in due {
+                group.addTask { (try? await ESPNClient.shared.gameLog(athleteID: id)).map { (id, $0.seasonPPG) } }
+            }
+            var out: [(String, Double?)] = []
+            for await r in group { if let r { out.append(r) } }
+            return out
+        }
+        for (id, ppg) in fresh {
+            seasonPPG[id] = ppg
+            ppgFetchedAt[id] = Date()
         }
     }
 

@@ -121,6 +121,7 @@ struct NightRowView: View {
                 HStack(spacing: 5) {
                     PlayerName(name: row.player.name)
                     if injury != nil { InjuryMark() }
+                    SeasonPPG(espnID: row.player.espnID)
                 }
                 HStack(spacing: 6) {
                     PositionPill(position: row.player.position)

@@ -38,9 +38,10 @@ enum ET {
 }
 
 enum DateParsing {
-    /// ESPN dates look like "2026-10-21T23:30Z" (no seconds).
+    /// ESPN dates look like "2026-10-21T23:30Z" (no seconds); the game log uses "2026-10-24T02:00:00.000+00:00".
     static func parse(_ s: String) -> Date? {
-        let patterns = ["yyyy-MM-dd'T'HH:mm'Z'", "yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"]
+        let patterns = ["yyyy-MM-dd'T'HH:mm'Z'", "yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+                        "yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX", "yyyy-MM-dd'T'HH:mm:ssXXXXX"]
         for p in patterns {
             let f = DateFormatter()
             f.locale = Locale(identifier: "en_US_POSIX")
@@ -94,6 +95,7 @@ enum TeamAlias {
     private static let map = [
         "GSW": "GS", "NYK": "NY", "NOP": "NO", "SAS": "SA",
         "UTH": "UTAH", "UTA": "UTAH", "WAS": "WSH", "PHO": "PHX",
+        "PHIL": "PHI", "PORT": "POR", "PDX": "POR", "CHLT": "CHA", "WDC": "WSH",
     ]
     static func canon(_ s: String) -> String {
         let u = s.uppercased()

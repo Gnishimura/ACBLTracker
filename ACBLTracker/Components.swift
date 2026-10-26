@@ -49,6 +49,21 @@ struct PlayerName: View {
     }
 }
 
+/// "24.5 ppg" after a player's name. Shows nothing until he has a regular-season game.
+struct SeasonPPG: View {
+    let espnID: String?
+    @EnvironmentObject var directory: PlayerDirectory
+
+    var body: some View {
+        if let espnID, let ppg = directory.seasonPPG[espnID] {
+            Text(String(format: "%.1f ppg", ppg))
+                .font(.caption2.weight(.medium)).monospacedDigit()
+                .foregroundStyle(.secondary)
+                .fixedSize()
+        }
+    }
+}
+
 struct HeadshotView: View {
     let url: URL?
     var size: CGFloat = 48
