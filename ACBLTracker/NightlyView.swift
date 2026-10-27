@@ -23,16 +23,33 @@ struct NightlyView: View {
                     Section {
                         Text(week.results == nil
                              ? "Loading..."
-                             : "None of your players have a counting game on this date.")
+                             : "None of your players play on this date.")
                             .foregroundStyle(.secondary)
                     }
                 } else {
+                    let counting = rows.filter { !$0.isOffNight }
+                    let off = rows.filter(\.isOffNight)
                     Section {
                         summary(rows)
                     }
-                    Section("Players") {
-                        ForEach(rows) { row in
-                            NightRowView(row: row)
+                    if !counting.isEmpty {
+                        Section {
+                            ForEach(counting) { row in
+                                NightRowView(row: row)
+                            }
+                        } header: {
+                            Label("Counting games", systemImage: "checkmark.circle.fill")
+                        }
+                    }
+                    if !off.isEmpty {
+                        Section {
+                            ForEach(off) { row in
+                                NightRowView(row: row)
+                            }
+                        } header: {
+                            Label("Off night", systemImage: "moon.zzz.fill")
+                        } footer: {
+                            Text("These teams already played their 2 counting games this week, so these points don't count.")
                         }
                     }
                 }
@@ -54,11 +71,13 @@ struct NightlyView: View {
             ForEach(week.days, id: \.self) { d in
                 let isSelected = d == day
                 let total = week.nightTotal(on: d)
+                let dayRows = week.rows(on: d)
+                let offOnly = !dayRows.isEmpty && dayRows.allSatisfy(\.isOffNight)
                 Button { selectedDay = d } label: {
                     VStack(spacing: 2) {
                         Text(ET.format("EEE", d).uppercased()).font(.caption2.bold())
                         Text(ET.format("d", d)).font(.headline)
-                        Text(total > 0 ? "\(total)" : "-")
+                        Text(total > 0 ? "\(total)" : offOnly ? "off" : "-")
                             .font(.caption2).monospacedDigit()
                             .foregroundStyle(isSelected ? Color.white.opacity(0.85) : Color.secondary)
                     }
@@ -76,10 +95,18 @@ struct NightlyView: View {
         let counted = rows.filter { $0.result.isCounted }
         let total = counted.reduce(0) { $0 + $1.result.total }
         let bonus = counted.reduce(0) { $0 + $1.result.bonus }
+        let off = rows.filter(\.isOffNight).count
+        let notCounted = rows.count - counted.count - off
         return HStack {
             VStack(alignment: .leading) {
-                Text(ET.format("EEEE, MMM d", day)).font(.subheadline.bold())
-                Text("\(counted.count) counting, \(rows.count - counted.count) not counting")
+                HStack(spacing: 6) {
+                    Text(ET.format("EEEE, MMM d", day)).font(.subheadline.bold())
+                    NightKindTag(offNight: off == rows.count)
+                }
+                Text([counted.count > 0 || notCounted > 0 ? "\(counted.count) counting" : nil,
+                      notCounted > 0 ? "\(notCounted) not counting" : nil,
+                      off > 0 ? "\(off) off night" : nil]
+                        .compactMap { $0 }.joined(separator: ", "))
                     .font(.caption).foregroundStyle(.secondary)
                 let live = rows.filter { $0.line.state == .live }.count
                 let finals = rows.filter { $0.line.state == .final }.count
@@ -104,6 +131,20 @@ struct NightlyView: View {
                 .contentTransition(.numericText(value: Double(total)))
                 .animation(.snappy, value: total)
         }
+    }
+}
+
+/// "Counting night" when any of your games tonight count, "Off night" when none can.
+struct NightKindTag: View {
+    let offNight: Bool
+
+    var body: some View {
+        Text(offNight ? "OFF NIGHT" : "COUNTING NIGHT")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(offNight ? Color.secondary : Color.green)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background((offNight ? Color.secondary : Color.green).opacity(0.15), in: Capsule())
     }
 }
 
@@ -141,13 +182,14 @@ struct NightRowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             ScoreCell(line: row.line, result: row.result)
         }
-        .opacity(row.result.isCounted || row.result.availability.isDNP ? 1 : 0.55)
+        .opacity(row.result.isCounted || row.result.availability.isDNP ? 1 : row.isOffNight ? 0.75 : 0.55)
     }
 
     /// Only says something when it's out of the ordinary. Starters, playing subs (the score cell shows "counts N"),
     /// plain deep-bench rows (dimmed) and DNPs (red tag) already speak for themselves.
     private var roleCaption: String? {
         let r = row.result
+        if row.isOffNight { return "Game \(row.gameIndex + 1) of the week - doesn't count" }
         switch r.role {
         case .promoted:
             return "Moved up to starters - full points + bonus"

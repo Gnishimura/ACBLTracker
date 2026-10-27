@@ -18,14 +18,25 @@ struct GameLine: Equatable, Codable {
 struct NightRow: Identifiable {
     var id: String { "\(player.id.uuidString)-\(gameIndex)" }
     let player: RosterPlayer
-    let gameIndex: Int
+    let gameIndex: Int          // 0 and 1 count; 2 and up are off-night games
     let line: GameLine
     let result: PlayerGameResult
+
+    /// The team's 3rd or later game of the week, which never counts.
+    var isOffNight: Bool { gameIndex >= 2 }
+}
+
+/// A game past a team's first two of the week. Shown on the Nightly tab, never scored.
+struct OffNightGame: Codable {
+    let line: GameLine
+    let availability: Availability
 }
 
 struct WeekResults: Codable {
     var lines: [UUID: [GameLine?]]                // per player, 2 entries
     var perGame: [[UUID: PlayerGameResult]]       // index 0 and 1
+    /// Per player, the team's 3rd and later games inside the week. nil for weeks saved before this was tracked.
+    var offNights: [UUID: [OffNightGame]]? = nil
 
     func result(for playerID: UUID, game: Int) -> PlayerGameResult? { perGame[game][playerID] }
     func line(for playerID: UUID, game: Int) -> GameLine? {
@@ -64,6 +75,7 @@ final class WeekStore: ObservableObject {
     private let directory: PlayerDirectory
     private let lineupStore: LineupStore
     private var teamGames: [String: [GameInfo]] = [:]
+    private var offNightGames: [String: [GameInfo]] = [:]   // each team's 3rd+ games within Tue-Mon
     private var boxes: [String: [String: PlayerLine]] = [:]   // eventID -> athleteID -> line
     private var rerunRequested = false
 
@@ -151,6 +163,7 @@ final class WeekStore: ObservableObject {
         showSaved(for: LineupStore.key(for: start))   // saved scores show instantly
         hasLive = false
         teamGames = [:]
+        offNightGames = [:]
         Task { await refresh() }
     }
 
@@ -215,19 +228,21 @@ final class WeekStore: ObservableObject {
         }
         if failedDays == dayList.count { throw ClientError.noData }
 
-        // 2. Each team's first two games, in order.
-        var byTeam: [String: [GameInfo]] = [:]
+        // 2. Each team's first two games, in order, then any later ones inside the Tue-Mon week (off nights).
+        var allByTeam: [String: [GameInfo]] = [:]
         for g in games.values.filter({ !$0.excluded }).sorted(by: { $0.date < $1.date }) {
-            byTeam[g.homeID, default: []].append(g)
-            byTeam[g.awayID, default: []].append(g)
+            allByTeam[g.homeID, default: []].append(g)
+            allByTeam[g.awayID, default: []].append(g)
         }
-        byTeam = byTeam.mapValues { Array($0.prefix(2)) }
+        let byTeam = allByTeam.mapValues { Array($0.prefix(2)) }
+        let weekOver = ET.addDays(7, to: start)
+        let offByTeam = allByTeam.mapValues { $0.dropFirst(2).filter { $0.date < weekOver } }
 
         // 3. Box scores for started games involving a rostered player's team. Finals are cached for good.
         var needed = Set<String>()
         for p in lineup.all {
             guard let id = p.espnID, let tid = directory.player(id: id)?.teamID else { continue }
-            for g in byTeam[tid] ?? [] where g.state != .scheduled {
+            for g in (byTeam[tid] ?? []) + (offByTeam[tid] ?? []) where g.state != .scheduled {
                 if g.state == .live || boxes[g.id] == nil { needed.insert(g.id) }
             }
         }
@@ -245,6 +260,7 @@ final class WeekStore: ObservableObject {
 
         guard start == weekStart else { return }   // user changed weeks mid-fetch
         teamGames = byTeam
+        offNightGames = offByTeam
         recompute(lineup: lineup)
     }
 
@@ -253,6 +269,7 @@ final class WeekStore: ObservableObject {
     private func recompute(lineup: Lineup) {
         var lines: [UUID: [GameLine?]] = [:]
         var availability: [[UUID: Availability]] = [[:], [:]]
+        var offNights: [UUID: [OffNightGame]] = [:]
         var live = false
         var settled = true    // every counted game is final and has a box score
         let windowClosed = Date() >= ET.addDays(10, to: weekStart)
@@ -277,50 +294,26 @@ final class WeekStore: ObservableObject {
                     continue
                 }
                 let game = teamList[idx]
-                let box = boxes[game.id]
-                let stat = box?[eid]
-                if game.state != .final || box == nil { settled = false }
-
-                var a = Availability.pending
-                switch game.state {
-                case .scheduled:
-                    a = .pending
-                case .live:
-                    live = true
-                    if let stat, stat.didPlay { a = .live(stat.points) }
-                case .final:
-                    if box == nil {
-                        a = .pending                       // box score didn't load; don't call him a DNP
-                    } else if let stat, stat.didPlay {
-                        a = .played(stat.points)
-                    } else {
-                        a = .dnp
-                    }
-                }
+                if game.state != .final || boxes[game.id] == nil { settled = false }
+                if game.state == .live { live = true }
+                let (a, line) = gameLine(game, athleteID: eid, teamID: tid)
                 availability[idx][p.id] = a
-
-                let opponent = (tid == game.homeID) ? "vs \(game.awayAbbr)" : "@ \(game.homeAbbr)"
-                var pts: Int? = nil
-                if case .live(let x) = a { pts = x }
-                if case .played(let x) = a { pts = x }
-                var fgm: Int? = nil
-                var fga: Int? = nil
-                var boxStats: BoxStats? = nil
-                if pts != nil, let stat {
-                    fgm = stat.fgm
-                    fga = stat.fga
-                    boxStats = stat.box
-                }
-                playerLines[idx] = GameLine(
-                    eventID: game.id, date: game.date, opponent: opponent, state: game.state, statusText: game.statusText,
-                    points: pts, fgm: fgm, fga: fga, box: boxStats
-                )
+                playerLines[idx] = line
             }
             lines[p.id] = playerLines
+
+            if let eid, let tid, let extra = offNightGames[tid], !extra.isEmpty {
+                offNights[p.id] = extra.map { game in
+                    if game.state != .final || boxes[game.id] == nil { settled = false }
+                    if game.state == .live { live = true }
+                    let (a, line) = gameLine(game, athleteID: eid, teamID: tid)
+                    return OffNightGame(line: line, availability: a)
+                }
+            }
         }
 
         let perGame = (0..<2).map { ScoringEngine.resolve(lineup: lineup, availability: availability[$0], rules: rules) }
-        let computed = WeekResults(lines: lines, perGame: perGame)
+        let computed = WeekResults(lines: lines, perGame: perGame, offNights: offNights)
         results = computed
         hasLive = live
         isStale = false
@@ -338,6 +331,45 @@ final class WeekStore: ObservableObject {
             saveFrozen()
         }
         saveCache()
+    }
+
+    /// One player's status and stat line for one game, from the saved box score.
+    private func gameLine(_ game: GameInfo, athleteID eid: String, teamID tid: String) -> (Availability, GameLine) {
+        let box = boxes[game.id]
+        let stat = box?[eid]
+        var a = Availability.pending
+        switch game.state {
+        case .scheduled:
+            a = .pending
+        case .live:
+            if let stat, stat.didPlay { a = .live(stat.points) }
+        case .final:
+            if box == nil {
+                a = .pending                       // box score didn't load; don't call him a DNP
+            } else if let stat, stat.didPlay {
+                a = .played(stat.points)
+            } else {
+                a = .dnp
+            }
+        }
+
+        let opponent = (tid == game.homeID) ? "vs \(game.awayAbbr)" : "@ \(game.homeAbbr)"
+        var pts: Int? = nil
+        if case .live(let x) = a { pts = x }
+        if case .played(let x) = a { pts = x }
+        var fgm: Int? = nil
+        var fga: Int? = nil
+        var boxStats: BoxStats? = nil
+        if pts != nil, let stat {
+            fgm = stat.fgm
+            fga = stat.fga
+            boxStats = stat.box
+        }
+        let line = GameLine(
+            eventID: game.id, date: game.date, opponent: opponent, state: game.state, statusText: game.statusText,
+            points: pts, fgm: fgm, fga: fga, box: boxStats
+        )
+        return (a, line)
     }
 
     private func saveCache() {
@@ -360,7 +392,7 @@ final class WeekStore: ObservableObject {
 
     // MARK: Nightly view
 
-    /// Rostered players whose team plays on `day` (ET) and whose game counts toward this league week.
+    /// Rostered players whose team plays on `day` (ET): counting games (the team's first two of the week) and off nights.
     func rows(on day: Date) -> [NightRow] {
         guard let results else { return [] }
         var out: [NightRow] = []
@@ -370,6 +402,10 @@ final class WeekStore: ObservableObject {
                       let result = results.result(for: p.id, game: idx),
                       ET.startOfDay(line.date) == day else { continue }
                 out.append(NightRow(player: p, gameIndex: idx, line: line, result: result))
+            }
+            for (i, game) in (results.offNights?[p.id] ?? []).enumerated() where ET.startOfDay(game.line.date) == day {
+                let result = PlayerGameResult(role: .notCounted, availability: game.availability, countedPoints: 0, bonus: 0)
+                out.append(NightRow(player: p, gameIndex: 2 + i, line: game.line, result: result))
             }
         }
         // Same order as the Lineup tab: starters (G, G, F, F, C), bench, then deep bench.
