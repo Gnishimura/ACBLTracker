@@ -348,9 +348,9 @@ actor ESPNClient {
 
     // MARK: Recent games
 
-    /// A player's games this season, newest first, and his season scoring average. Cached for five minutes.
-    func gameLog(athleteID: String) async throws -> GameLog {
-        if let hit = gameLogCache[athleteID], Date().timeIntervalSince(hit.fetched) < 300 { return hit.log }
+    /// A player's games this season, newest first, and his season scoring average. Cached for five minutes unless `force`.
+    func gameLog(athleteID: String, force: Bool = false) async throws -> GameLog {
+        if !force, let hit = gameLogCache[athleteID], Date().timeIntervalSince(hit.fetched) < 300 { return hit.log }
         // ESPN names a season by the year it ends: 2026-27 is 2027. Without this it may return the wrong season.
         let comps = Calendar(identifier: .gregorian).dateComponents([.year, .month], from: Date())
         let season = (comps.month ?? 1) >= 9 ? (comps.year ?? 2026) + 1 : (comps.year ?? 2027)
@@ -418,9 +418,9 @@ actor ESPNClient {
 
     // MARK: News
 
-    /// A player's five latest Rotowire notes from the past 7 days, newest first. Cached for five minutes.
-    func news(athleteID: String) async throws -> [PlayerNews] {
-        if let hit = newsCache[athleteID], Date().timeIntervalSince(hit.fetched) < 300 { return hit.items }
+    /// A player's five latest Rotowire notes from the past 7 days, newest first. Cached for five minutes unless `force`.
+    func news(athleteID: String, force: Bool = false) async throws -> [PlayerNews] {
+        if !force, let hit = newsCache[athleteID], Date().timeIntervalSince(hit.fetched) < 300 { return hit.items }
         // The feed also carries videos and general articles; only the Rotowire notes are about this player.
         guard let url = URL(string: "https://site.api.espn.com/apis/fantasy/v2/games/fba/news/players?limit=50&playerId=\(athleteID)")
         else { throw ClientError.badStatus }

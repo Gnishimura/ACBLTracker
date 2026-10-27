@@ -28,6 +28,7 @@ struct HistoryView: View {
             }
             .listStyle(.insetGrouped)
             .contentMargins(.bottom, 80, for: .scrollContent)
+            .refreshable { await Task { await week.refreshAll() }.value }
             .navigationTitle("History")
             .navigationBarTitleDisplayMode(.inline)
         }

@@ -365,7 +365,7 @@ struct LineupView: View {
             .sensoryFeedback(.selection, trigger: selected)
             .refreshable {
                 // Run in its own task so a SwiftUI redraw mid-pull can't cancel the network calls.
-                await Task { await week.refresh() }.value
+                await Task { await week.refreshAll() }.value
             }
             .alert("Can't swap those", isPresented: $showSwapError) {
                 Button("OK", role: .cancel) {}

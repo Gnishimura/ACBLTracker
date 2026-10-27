@@ -188,6 +188,14 @@ final class WeekStore: ObservableObject {
         isLoading = false
     }
 
+    /// Pull to refresh: the injury report and season averages, which otherwise update on a timer, then scores.
+    func refreshAll() async {
+        await directory.loadInjuries(force: true)
+        async let ppg: Void = directory.loadSeasonPPG(for: lineupStore.lineup.all.compactMap(\.espnID), force: true)
+        await refresh()
+        await ppg
+    }
+
     private func load() async throws {
         // A finished week is already saved. No network needed.
         if let done = frozen[LineupStore.key(for: weekStart)] {

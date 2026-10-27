@@ -71,14 +71,14 @@ final class PlayerDirectory: ObservableObject {
         }
     }
 
-    /// Season scoring averages for these players, each refreshed at most every 30 minutes.
+    /// Season scoring averages for these players, each refreshed at most every 30 minutes (every time with `force`).
     /// A failed fetch isn't recorded, so it's retried on the next call.
-    func loadSeasonPPG(for ids: [String]) async {
-        let due = Set(ids.filter { Date().timeIntervalSince(ppgFetchedAt[$0] ?? .distantPast) > 1800 })
+    func loadSeasonPPG(for ids: [String], force: Bool = false) async {
+        let due = Set(ids.filter { force || Date().timeIntervalSince(ppgFetchedAt[$0] ?? .distantPast) > 1800 })
         guard !due.isEmpty else { return }
         let fresh = await withTaskGroup(of: (String, Double?)?.self) { group -> [(String, Double?)] in
             for id in due {
-                group.addTask { (try? await ESPNClient.shared.gameLog(athleteID: id)).map { (id, $0.seasonPPG) } }
+                group.addTask { (try? await ESPNClient.shared.gameLog(athleteID: id, force: force)).map { (id, $0.seasonPPG) } }
             }
             var out: [(String, Double?)] = []
             for await r in group { if let r { out.append(r) } }

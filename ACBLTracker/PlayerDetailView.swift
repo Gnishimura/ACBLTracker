@@ -54,8 +54,19 @@ struct PlayerDetailView: View {
             }
             .task { await loadRecent() }
             .task { await loadNews() }
+            .refreshable {
+                // Its own task, so a redraw mid-pull can't cancel the network calls.
+                await Task {
+                    async let recent: Void = loadRecent(force: true)
+                    async let news: Void = loadNews(force: true)
+                    await directory.loadInjuries(force: true)
+                    _ = await (recent, news)
+                }.value
+            }
         }
         .presentationDetents([.medium, .large])
+        // A pull down on the list refreshes it instead of shrinking the sheet. Drag the title bar to resize or close.
+        .presentationContentInteraction(.scrolls)
     }
 
     // MARK: Game log
@@ -156,9 +167,9 @@ struct PlayerDetailView: View {
         }
     }
 
-    private func loadRecent() async {
+    private func loadRecent(force: Bool = false) async {
         var games: [RecentGame] = []
-        if let id = player.espnID, let log = try? await ESPNClient.shared.gameLog(athleteID: id) {
+        if let id = player.espnID, let log = try? await ESPNClient.shared.gameLog(athleteID: id, force: force) {
             games = log.games
             preseason = log.preseason
             seasonPPG = log.seasonPPG
@@ -213,13 +224,14 @@ struct PlayerDetailView: View {
         }
     }
 
-    private func loadNews() async {
+    private func loadNews(force: Bool = false) async {
         guard let id = player.espnID else {
             news = []
             return
         }
         do {
-            news = try await ESPNClient.shared.news(athleteID: id)
+            news = try await ESPNClient.shared.news(athleteID: id, force: force)
+            newsFailed = false
         } catch {
             newsFailed = true
         }
